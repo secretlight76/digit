@@ -1,0 +1,26 @@
+{
+  "name": "audio-digitization-educational-tool",
+  "version": "1.0.0",
+  "description": "Outil pédagogique complet pour comprendre la numérisation audio",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "npx http-server -p 8080 -o",
+    "start": "npx http-server -p 8080"
+  },
+  "keywords": [
+    "audio",
+    "numérisation",
+    "pédagogie",
+    "échantillonnage",
+    "quantification",
+    "compression"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

@@ -1,0 +1,131 @@
+/* ==========================================
+   SYSTÈME DE THÈME CLAIR/DARK
+   ========================================== */
+
+/* Thème Clair (par défaut) */
+[data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8f9fa;
+    --bg-tertiary: #e9ecef;
+    --bg-card: #ffffff;
+    --bg-code: #f4f4f4;
+
+    --text-primary: #212529;
+    --text-secondary: #6c757d;
+    --text-tertiary: #adb5bd;
+
+    --border-color: #dee2e6;
+    --border-hover: #adb5bd;
+
+    --accent-primary: #0d6efd;
+    --accent-secondary: #6610f2;
+    --accent-success: #198754;
+    --accent-warning: #ffc107;
+    --accent-danger: #dc3545;
+    --accent-info: #0dcaf0;
+
+    --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    --shadow-lg: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+
+    --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --gradient-secondary: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+
+    --canvas-bg: #ffffff;
+    --canvas-grid: #e9ecef;
+    --canvas-signal: #0d6efd;
+    --canvas-sample: #dc3545;
+    --canvas-text: #212529;
+}
+
+/* Thème Sombre */
+[data-theme="dark"] {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --bg-card: #161b22;
+    --bg-code: #0d1117;
+
+    --text-primary: #c9d1d9;
+    --text-secondary: #8b949e;
+    --text-tertiary: #6e7681;
+
+    --border-color: #30363d;
+    --border-hover: #484f58;
+
+    --accent-primary: #58a6ff;
+    --accent-secondary: #bc8cff;
+    --accent-success: #3fb950;
+    --accent-warning: #d29922;
+    --accent-danger: #f85149;
+    --accent-info: #56d4dd;
+
+    --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 1rem 3rem rgba(0, 0, 0, 0.5);
+
+    --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --gradient-secondary: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+
+    --canvas-bg: #161b22;
+    --canvas-grid: #21262d;
+    --canvas-signal: #58a6ff;
+    --canvas-sample: #f85149;
+    --canvas-text: #c9d1d9;
+}
+
+/* Transitions douces pour le changement de thème */
+body,
+.main-header,
+.main-nav,
+.info-card,
+.concept-box,
+.theory-box,
+.demo-controls,
+.stat-card,
+.format-card,
+canvas {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Bouton de basculement de thème */
+.theme-toggle {
+    position: relative;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
+    border-radius: 50px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.theme-toggle:hover {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    transform: scale(1.05);
+}
+
+.theme-toggle .icon-sun,
+.theme-toggle .icon-moon {
+    font-size: 1.2rem;
+    transition: opacity 0.3s ease;
+}
+
+[data-theme="light"] .theme-toggle .icon-moon {
+    opacity: 0.3;
+}
+
+[data-theme="light"] .theme-toggle .icon-sun {
+    opacity: 1;
+}
+
+[data-theme="dark"] .theme-toggle .icon-sun {
+    opacity: 0.3;
+}
+
+[data-theme="dark"] .theme-toggle .icon-moon {
+    opacity: 1;
+}

@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Numérisation Audio - Outil Pédagogique</title>
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/themes.css">
+</head>
+<body data-theme="light">
+    <!-- Header -->
+    <header class="main-header">
+        <div class="container">
+            <h1>🎵 Numérisation Audio</h1>
+            <p class="subtitle">Comprendre la conversion du son analogique au numérique</p>
+            <button id="theme-toggle" class="theme-toggle" aria-label="Changer le thème">
+                <span class="icon-sun">☀️</span>
+                <span class="icon-moon">🌙</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="main-nav">
+        <div class="container">
+            <ul class="nav-list">
+                <li><a href="#intro" class="nav-link active" data-section="intro">Introduction</a></li>
+                <li><a href="#sampling" class="nav-link" data-section="sampling">Échantillonnage</a></li>
+                <li><a href="#quantization" class="nav-link" data-section="quantization">Quantification</a></li>
+                <li><a href="#aliasing" class="nav-link" data-section="aliasing">Aliasing</a></li>
+                <li><a href="#bitrate" class="nav-link" data-section="bitrate">Débit</a></li>
+                <li><a href="#channels" class="nav-link" data-section="channels">Canaux</a></li>
+                <li><a href="#compression" class="nav-link" data-section="compression">Compression</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+
+            <!-- Introduction Section -->
+            <section id="intro" class="content-section active">
+                <h2>Introduction à la Numérisation Audio</h2>
+                <div class="info-card">
+                    <h3>Qu'est-ce que la numérisation audio ?</h3>
+                    <p>La numérisation audio est le processus de conversion d'un signal audio analogique (continu) en un signal numérique (discret) que les ordinateurs peuvent traiter et stocker.</p>
+
+                    <div class="concept-box">
+                        <h4>Les trois étapes fondamentales :</h4>
+                        <ol>
+                            <li><strong>Échantillonnage (Sampling)</strong> : Mesurer l'amplitude du signal à intervalles réguliers</li>
+                            <li><strong>Quantification</strong> : Convertir chaque mesure en valeur numérique</li>
+                            <li><strong>Encodage</strong> : Stocker les valeurs en format binaire</li>
+                        </ol>
+                    </div>
+
+                    <div class="visual-demo" id="intro-visualization">
+                        <canvas id="intro-canvas" width="800" height="300"></canvas>
+                        <div class="demo-controls">
+                            <button class="btn-primary" id="intro-play">Démarrer la démo</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sampling Section -->
+            <section id="sampling" class="content-section">
+                <h2>Échantillonnage (Sample Rate)</h2>
+
+                <div class="info-card">
+                    <h3>Qu'est-ce que l'échantillonnage ?</h3>
+                    <p>L'<strong>échantillonnage</strong> consiste à mesurer l'amplitude d'un signal audio à intervalles réguliers. La <strong>fréquence d'échantillonnage</strong> (ou sample rate) détermine combien de fois par seconde le signal est mesuré.</p>
+
+                    <div class="concept-box">
+                        <h4>Fréquences d'échantillonnage courantes :</h4>
+                        <ul>
+                            <li><strong>8 kHz</strong> : Téléphonie</li>
+                            <li><strong>22.05 kHz</strong> : Radio AM</li>
+                            <li><strong>44.1 kHz</strong> : CD Audio (standard)</li>
+                            <li><strong>48 kHz</strong> : Production vidéo professionnelle</li>
+                            <li><strong>96 kHz / 192 kHz</strong> : Audio haute résolution</li>
+                        </ul>
+                    </div>
+
+                    <div class="theory-box">
+                        <h4>📚 Théorème de Shannon-Nyquist</h4>
+                        <p>Pour reproduire correctement un signal, la fréquence d'échantillonnage doit être au moins <strong>deux fois supérieure</strong> à la fréquence maximale du signal.</p>
+                        <p class="formula">f<sub>échantillonnage</sub> ≥ 2 × f<sub>max</sub></p>
+                        <p class="example">Exemple : L'oreille humaine perçoit jusqu'à ~20 kHz, donc 44.1 kHz est suffisant (2 × 20 kHz = 40 kHz).</p>
+                    </div>
+                </div>
+
+                <div class="interactive-demo">
+                    <h3>Démonstration Interactive</h3>
+                    <div class="visual-demo">
+                        <canvas id="sampling-canvas" width="800" height="400"></canvas>
+                    </div>
+
+                    <div class="demo-controls">
+                        <div class="control-group">
+                            <label for="signal-freq">Fréquence du signal (Hz) : <span id="signal-freq-value">440</span></label>
+                            <input type="range" id="signal-freq" min="100" max="2000" value="440" step="10">
+                        </div>
+
+                        <div class="control-group">
+                            <label for="sample-rate">Fréquence d'échantillonnage (Hz) : <span id="sample-rate-value">8000</span></label>
+                            <input type="range" id="sample-rate" min="1000" max="48000" value="8000" step="1000">
+                        </div>
+
+                        <div class="control-group">
+                            <button class="btn-primary" id="play-sampling">Lecture Audio</button>
+                            <button class="btn-secondary" id="stop-sampling">Arrêter</button>
+                        </div>
+                    </div>
+
+                    <div class="info-display">
+                        <div class="stat-card">
+                            <h4>Échantillons par seconde</h4>
+                            <p class="stat-value" id="samples-per-sec">8000</p>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Respect de Nyquist</h4>
+                            <p class="stat-value" id="nyquist-check">✓</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Quantization Section -->
+            <section id="quantization" class="content-section">
+                <h2>Quantification (Bit Depth / Résolution)</h2>
+
+                <div class="info-card">
+                    <h3>Qu'est-ce que la quantification ?</h3>
+                    <p>La <strong>quantification</strong> convertit chaque échantillon mesuré en une valeur numérique. La <strong>résolution</strong> (bit depth) détermine la précision de cette conversion.</p>
+
+                    <div class="concept-box">
+                        <h4>Résolutions courantes :</h4>
+                        <ul>
+                            <li><strong>8 bits</strong> : 256 niveaux (2<sup>8</sup>) - Qualité téléphone</li>
+                            <li><strong>16 bits</strong> : 65 536 niveaux (2<sup>16</sup>) - CD Audio</li>
+                            <li><strong>24 bits</strong> : 16 777 216 niveaux (2<sup>24</sup>) - Production professionnelle</li>
+                            <li><strong>32 bits float</strong> : Très haute précision - DAW modernes</li>
+                        </ul>
+                    </div>
+
+                    <div class="theory-box">
+                        <h4>📚 Rapport Signal/Bruit (SNR)</h4>
+                        <p>Plus la résolution est élevée, plus le rapport signal/bruit est bon :</p>
+                        <p class="formula">SNR (dB) ≈ 6.02 × bits + 1.76</p>
+                        <ul>
+                            <li>16 bits : ~96 dB SNR</li>
+                            <li>24 bits : ~144 dB SNR</li>
+                        </ul>
+                        <p class="example">Le bruit de quantification diminue avec l'augmentation du nombre de bits.</p>
+                    </div>
+                </div>
+
+                <div class="interactive-demo">
+                    <h3>Démonstration Interactive</h3>
+                    <div class="visual-demo">
+                        <canvas id="quantization-canvas" width="800" height="400"></canvas>
+                    </div>
+
+                    <div class="demo-controls">
+                        <div class="control-group">
+                            <label for="bit-depth">Résolution (bits) : <span id="bit-depth-value">8</span></label>
+                            <input type="range" id="bit-depth" min="2" max="16" value="8" step="1">
+                        </div>
+
+                        <div class="control-group">
+                            <button class="btn-primary" id="play-quantization">Comparer Audio</button>
+                            <button class="btn-secondary" id="stop-quantization">Arrêter</button>
+                        </div>
+                    </div>
+
+                    <div class="info-display">
+                        <div class="stat-card">
+                            <h4>Niveaux disponibles</h4>
+                            <p class="stat-value" id="quant-levels">256</p>
+                        </div>
+                        <div class="stat-card">
+                            <h4>SNR théorique</h4>
+                            <p class="stat-value" id="snr-value">49.92 dB</p>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Plage dynamique</h4>
+                            <p class="stat-value" id="dynamic-range">48 dB</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Aliasing Section -->
+            <section id="aliasing" class="content-section">
+                <h2>Aliasing et Repliement Spectral</h2>
+
+                <div class="info-card">
+                    <h3>Qu'est-ce que l'aliasing ?</h3>
+                    <p>L'<strong>aliasing</strong> (ou repliement spectral) se produit lorsqu'un signal contient des fréquences supérieures à la moitié de la fréquence d'échantillonnage (fréquence de Nyquist).</p>
+
+                    <div class="concept-box warning">
+                        <h4>⚠️ Le problème de l'aliasing</h4>
+                        <p>Lorsque le théorème de Shannon-Nyquist n'est pas respecté, les hautes fréquences sont mal interprétées et apparaissent comme des basses fréquences parasites.</p>
+                        <p class="formula">f<sub>Nyquist</sub> = f<sub>échantillonnage</sub> / 2</p>
+                    </div>
+
+                    <div class="theory-box">
+                        <h4>📚 Filtres Anti-Aliasing</h4>
+                        <p>Pour éviter l'aliasing, on utilise un <strong>filtre passe-bas</strong> avant l'échantillonnage :</p>
+                        <ul>
+                            <li>Élimine les fréquences au-dessus de la fréquence de Nyquist</li>
+                            <li>Appliqué lors de la conversion analogique-numérique (ADC)</li>
+                            <li>Essentiel pour une numérisation de qualité</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="interactive-demo">
+                    <h3>Démonstration Interactive</h3>
+                    <div class="visual-demo">
+                        <canvas id="aliasing-canvas" width="800" height="400"></canvas>
+                    </div>
+
+                    <div class="demo-controls">
+                        <div class="control-group">
+                            <label for="input-freq">Fréquence d'entrée (Hz) : <span id="input-freq-value">5000</span></label>
+                            <input type="range" id="input-freq" min="100" max="20000" value="5000" step="100">
+                        </div>
+
+                        <div class="control-group">
+                            <label for="aliasing-sample-rate">Fréquence d'échantillonnage (Hz) : <span id="aliasing-sample-rate-value">8000</span></label>
+                            <input type="range" id="aliasing-sample-rate" min="2000" max="48000" value="8000" step="1000">
+                        </div>
+
+                        <div class="control-group">
+                            <button class="btn-primary" id="play-aliasing">Écouter Aliasing</button>
+                            <button class="btn-secondary" id="stop-aliasing">Arrêter</button>
+                        </div>
+                    </div>
+
+                    <div class="info-display">
+                        <div class="stat-card">
+                            <h4>Fréquence de Nyquist</h4>
+                            <p class="stat-value" id="nyquist-freq">4000 Hz</p>
+                        </div>
+                        <div class="stat-card">
+                            <h4>État</h4>
+                            <p class="stat-value" id="aliasing-status">Aliasing détecté !</p>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Fréquence perçue</h4>
+                            <p class="stat-value" id="perceived-freq">3000 Hz</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Bitrate Section -->
+            <section id="bitrate" class="content-section">
+                <h2>Débit (Bitrate)</h2>
+
+                <div class="info-card">
+                    <h3>Qu'est-ce que le débit ?</h3>
+                    <p>Le <strong>débit</strong> (bitrate) représente la quantité de données audio par seconde, mesurée en kilobits par seconde (kbps) ou mégabits par seconde (Mbps).</p>
+
+                    <div class="concept-box">
+                        <h4>Calcul du débit pour l'audio non compressé :</h4>
+                        <p class="formula">Débit = Fréquence d'échantillonnage × Résolution × Nombre de canaux</p>
+                        <p class="example">Exemple CD Audio : 44 100 Hz × 16 bits × 2 canaux = 1 411 200 bits/s = 1 411 kbps ≈ 1.4 Mbps</p>
+                    </div>
+
+                    <div class="theory-box">
+                        <h4>📚 Types de débit</h4>
+                        <ul>
+                            <li><strong>CBR (Constant Bitrate)</strong> : Débit constant tout au long du fichier</li>
+                            <li><strong>VBR (Variable Bitrate)</strong> : Débit variable selon la complexité du signal</li>
+                            <li><strong>ABR (Average Bitrate)</strong> : Débit moyen ciblé avec variations</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="interactive-demo">
+                    <h3>Calculateur de Débit</h3>
+
+                    <div class="demo-controls">
+                        <div class="control-group">
+                            <label for="bitrate-sample-rate">Fréquence d'échantillonnage (Hz) :</label>
+                            <select id="bitrate-sample-rate">
+                                <option value="8000">8 000 Hz (Téléphonie)</option>
+                                <option value="22050">22 050 Hz (Radio)</option>
+                                <option value="44100" selected>44 100 Hz (CD)</option>
+                                <option value="48000">48 000 Hz (Vidéo)</option>
+                                <option value="96000">96 000 Hz (Hi-Res)</option>
+                                <option value="192000">192 000 Hz (Studio)</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label for="bitrate-bit-depth">Résolution (bits) :</label>
+                            <select id="bitrate-bit-depth">
+                                <option value="8">8 bits</option>
+                                <option value="16" selected>16 bits</option>
+                                <option value="24">24 bits</option>
+                                <option value="32">32 bits</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label for="bitrate-channels">Canaux :</label>
+                            <select id="bitrate-channels">
+                                <option value="1">Mono (1 canal)</option>
+                                <option value="2" selected>Stéréo (2 canaux)</option>
+                                <option value="6">5.1 (6 canaux)</option>
+                                <option value="8">7.1 (8 canaux)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="info-display">
+                        <div class="stat-card large">
+                            <h4>Débit calculé</h4>
+                            <p class="stat-value" id="calculated-bitrate">1411 kbps</p>
+                        </div>
+                        <div class="stat-card large">
+                            <h4>Taille par minute</h4>
+                            <p class="stat-value" id="size-per-minute">10.3 MB</p>
+                        </div>
+                        <div class="stat-card large">
+                            <h4>Taille pour 1 heure</h4>
+                            <p class="stat-value" id="size-per-hour">635 MB</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Channels Section -->
+            <section id="channels" class="content-section">
+                <h2>Canaux Audio</h2>
+
+                <div class="info-card">
+                    <h3>Qu'est-ce qu'un canal audio ?</h3>
+                    <p>Un <strong>canal audio</strong> représente un flux audio indépendant. Le nombre de canaux détermine la spatialisation et l'immersion sonore.</p>
+
+                    <div class="concept-box">
+                        <h4>Configurations courantes :</h4>
+                        <ul>
+                            <li><strong>Mono (1.0)</strong> : 1 canal - Téléphonie, radio AM</li>
+                            <li><strong>Stéréo (2.0)</strong> : 2 canaux (G/D) - CD, streaming, production standard</li>
+                            <li><strong>2.1</strong> : Stéréo + subwoofer</li>
+                            <li><strong>5.1</strong> : Avant G/D, Centre, Arrière G/D, Subwoofer - Cinéma, DVD</li>
+                            <li><strong>7.1</strong> : 5.1 + Latéral G/D - Cinéma haute-gamme</li>
+                            <li><strong>Dolby Atmos</strong> : Canaux orientés objets 3D</li>
+                        </ul>
+                    </div>
+
+                    <div class="theory-box">
+                        <h4>📚 Techniques de spatialisation</h4>
+                        <ul>
+                            <li><strong>Pan (Panoramique)</strong> : Répartition G/D en stéréo</li>
+                            <li><strong>IID (Interaural Intensity Difference)</strong> : Différence de niveau entre les oreilles</li>
+                            <li><strong>ITD (Interaural Time Difference)</strong> : Différence de temps d'arrivée</li>
+                            <li><strong>HRTF (Head-Related Transfer Function)</strong> : Simulation 3D avec 2 canaux</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="interactive-demo">
+                    <h3>Démonstration de Spatialisation</h3>
+                    <div class="visual-demo">
+                        <canvas id="channels-canvas" width="800" height="400"></canvas>
+                    </div>
+
+                    <div class="demo-controls">
+                        <div class="control-group">
+                            <label for="pan-control">Panoramique (G ← → D) : <span id="pan-value">0</span></label>
+                            <input type="range" id="pan-control" min="-100" max="100" value="0" step="1">
+                        </div>
+
+                        <div class="control-group">
+                            <button class="btn-primary" id="play-channels">Jouer le son</button>
+                            <button class="btn-secondary" id="stop-channels">Arrêter</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label for="channel-config">Configuration :</label>
+                            <select id="channel-config">
+                                <option value="mono">Mono</option>
+                                <option value="stereo" selected>Stéréo</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="info-display">
+                        <div class="stat-card">
+                            <h4>Canal Gauche</h4>
+                            <p class="stat-value" id="left-level">50%</p>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Canal Droit</h4>
+                            <p class="stat-value" id="right-level">50%</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Compression Section -->
+            <section id="compression" class="content-section">
+                <h2>Compression Audio</h2>
+
+                <div class="info-card">
+                    <h3>Qu'est-ce que la compression audio ?</h3>
+                    <p>La <strong>compression audio</strong> réduit la taille des fichiers audio en éliminant les informations redondantes ou inaudibles.</p>
+
+                    <div class="concept-box">
+                        <h4>Deux types de compression :</h4>
+                        <ul>
+                            <li><strong>Sans perte (Lossless)</strong> : Compression réversible, qualité identique à l'original
+                                <ul>
+                                    <li>FLAC (Free Lossless Audio Codec) - Open source</li>
+                                    <li>ALAC (Apple Lossless) - Apple</li>
+                                    <li>WAV / AIFF - Non compressés</li>
+                                </ul>
+                            </li>
+                            <li><strong>Avec perte (Lossy)</strong> : Compression irréversible, perte de qualité acceptable
+                                <ul>
+                                    <li>MP3 (MPEG-1 Audio Layer 3) - Standard universel</li>
+                                    <li>AAC (Advanced Audio Coding) - Meilleur que MP3, iTunes/YouTube</li>
+                                    <li>Opus - Open source, très efficace, WebRTC</li>
+                                    <li>OGG Vorbis - Open source</li>
+                                    <li>WMA (Windows Media Audio) - Microsoft</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="theory-box">
+                        <h4>📚 Modèle psychoacoustique</h4>
+                        <p>Les codecs avec perte utilisent le <strong>masquage psychoacoustique</strong> :</p>
+                        <ul>
+                            <li><strong>Masquage fréquentiel</strong> : Sons forts masquent les sons faibles proches en fréquence</li>
+                            <li><strong>Masquage temporel</strong> : Sons forts masquent brièvement avant/après leur occurrence</li>
+                            <li><strong>Seuil d'audition</strong> : Fréquences inaudibles sont éliminées</li>
+                        </ul>
+                        <p class="example">Ces techniques permettent une réduction de 75-90% de la taille sans perte perceptible.</p>
+                    </div>
+                </div>
+
+                <div class="interactive-demo">
+                    <h3>Comparaison des Formats</h3>
+
+                    <div class="format-comparison">
+                        <div class="format-card">
+                            <h4>WAV (Non compressé)</h4>
+                            <ul>
+                                <li>Type : Lossless (non compressé)</li>
+                                <li>Débit : 1411 kbps (44.1kHz/16bit/stéréo)</li>
+                                <li>Taille (3 min) : ~30 MB</li>
+                                <li>Qualité : ★★★★★</li>
+                                <li>Compatibilité : Universelle</li>
+                                <li>Usage : Production, master</li>
+                            </ul>
+                        </div>
+
+                        <div class="format-card">
+                            <h4>FLAC</h4>
+                            <ul>
+                                <li>Type : Lossless (compressé)</li>
+                                <li>Compression : ~50-60%</li>
+                                <li>Taille (3 min) : ~15 MB</li>
+                                <li>Qualité : ★★★★★ (identique à WAV)</li>
+                                <li>Compatibilité : Très bonne</li>
+                                <li>Usage : Archivage, audiophiles</li>
+                            </ul>
+                        </div>
+
+                        <div class="format-card">
+                            <h4>MP3</h4>
+                            <ul>
+                                <li>Type : Lossy</li>
+                                <li>Débit typique : 128-320 kbps</li>
+                                <li>Taille (3 min, 320kbps) : ~7.2 MB</li>
+                                <li>Taille (3 min, 128kbps) : ~2.9 MB</li>
+                                <li>Qualité : ★★★☆☆ à ★★★★☆</li>
+                                <li>Compatibilité : Universelle</li>
+                                <li>Usage : Streaming, partage</li>
+                            </ul>
+                        </div>
+
+                        <div class="format-card">
+                            <h4>AAC</h4>
+                            <ul>
+                                <li>Type : Lossy</li>
+                                <li>Débit typique : 128-256 kbps</li>
+                                <li>Taille (3 min, 256kbps) : ~5.8 MB</li>
+                                <li>Qualité : ★★★★☆ (meilleur que MP3)</li>
+                                <li>Compatibilité : Excellente</li>
+                                <li>Usage : iTunes, YouTube, streaming</li>
+                            </ul>
+                        </div>
+
+                        <div class="format-card">
+                            <h4>Opus</h4>
+                            <ul>
+                                <li>Type : Lossy</li>
+                                <li>Débit : 6-510 kbps (adaptatif)</li>
+                                <li>Taille (3 min, 128kbps) : ~2.9 MB</li>
+                                <li>Qualité : ★★★★★ (meilleur que AAC)</li>
+                                <li>Compatibilité : Croissante</li>
+                                <li>Usage : VoIP, WebRTC, streaming</li>
+                            </ul>
+                        </div>
+
+                        <div class="format-card">
+                            <h4>OGG Vorbis</h4>
+                            <ul>
+                                <li>Type : Lossy</li>
+                                <li>Débit : 45-500 kbps</li>
+                                <li>Taille (3 min, 128kbps) : ~2.9 MB</li>
+                                <li>Qualité : ★★★★☆</li>
+                                <li>Compatibilité : Bonne</li>
+                                <li>Usage : Jeux vidéo, open source</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="compression-calculator">
+                        <h3>Calculateur de Compression</h3>
+                        <div class="demo-controls">
+                            <div class="control-group">
+                                <label for="audio-duration">Durée (minutes) : <span id="duration-value">3</span></label>
+                                <input type="range" id="audio-duration" min="1" max="60" value="3" step="1">
+                            </div>
+
+                            <div class="control-group">
+                                <label for="compression-format">Format :</label>
+                                <select id="compression-format">
+                                    <option value="wav">WAV (Non compressé)</option>
+                                    <option value="flac">FLAC (Lossless)</option>
+                                    <option value="mp3-320">MP3 320 kbps</option>
+                                    <option value="mp3-192">MP3 192 kbps</option>
+                                    <option value="mp3-128">MP3 128 kbps</option>
+                                    <option value="aac-256">AAC 256 kbps</option>
+                                    <option value="aac-128">AAC 128 kbps</option>
+                                    <option value="opus-128">Opus 128 kbps</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="info-display">
+                            <div class="stat-card large">
+                                <h4>Taille du fichier</h4>
+                                <p class="stat-value" id="file-size">30 MB</p>
+                            </div>
+                            <div class="stat-card large">
+                                <h4>Taux de compression</h4>
+                                <p class="stat-value" id="compression-ratio">-</p>
+                            </div>
+                            <div class="stat-card large">
+                                <h4>Économie d'espace</h4>
+                                <p class="stat-value" id="space-saved">-</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="main-footer">
+        <div class="container">
+            <p>Outil pédagogique pour l'apprentissage de la numérisation audio</p>
+            <p>Conçu pour les étudiants en audiovisuel et production audio</p>
+        </div>
+    </footer>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
