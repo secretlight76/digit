@@ -1350,24 +1350,9 @@ class AudioLab {
     initFormatsComparison() {
         this.formatsState = {
             duration: 3,
-            sampleRate: 44100,
-            bitDepth: 16,
-            channels: 2,
-            showFormats: {
-                wav: true,
-                flac: true,
-                mp3: true,
-                mp3_128: true,
-                aac: true,
-                opus: true
-            }
+            quality: 'pro', // cd, pro, hires
+            channels: 2
         };
-
-        const canvas = document.getElementById('formats-canvas');
-        if (canvas) {
-            canvas.width = 900;
-            canvas.height = 500;
-        }
 
         // Duration
         const durationSlider = document.getElementById('fmt-duration');
@@ -1376,212 +1361,278 @@ class AudioLab {
             durationSlider.addEventListener('input', () => {
                 this.formatsState.duration = parseInt(durationSlider.value);
                 durationVal.textContent = this.formatsState.duration;
-                this.scheduleDraw(() => this.drawFormatsComparison(this.formatsState));
+                this.updateFormatsDisplay();
             });
         }
 
-        // Quick buttons
+        // Quick buttons for duration
         document.querySelectorAll('.btn-tiny[data-target="fmt-duration"]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const val = parseInt(btn.getAttribute('data-value'));
                 durationSlider.value = val;
                 this.formatsState.duration = val;
                 durationVal.textContent = val;
-                this.drawFormatsComparison(this.formatsState);
+                this.updateFormatsDisplay();
             });
         });
 
-        // Sample Rate
-        const srSelect = document.getElementById('fmt-sr');
-        if (srSelect) {
-            srSelect.addEventListener('change', () => {
-                this.formatsState.sampleRate = parseInt(srSelect.value);
-                this.scheduleDraw(() => this.drawFormatsComparison(this.formatsState));
-            });
-        }
-
-        // Bit Depth
-        const bdSelect = document.getElementById('fmt-bd');
-        if (bdSelect) {
-            bdSelect.addEventListener('change', () => {
-                this.formatsState.bitDepth = parseInt(bdSelect.value);
-                this.scheduleDraw(() => this.drawFormatsComparison(this.formatsState));
+        // Quality preset
+        const qualitySelect = document.getElementById('fmt-quality');
+        if (qualitySelect) {
+            qualitySelect.addEventListener('change', () => {
+                this.formatsState.quality = qualitySelect.value;
+                this.updateFormatsDisplay();
             });
         }
 
         // Channels
-        const chSelect = document.getElementById('fmt-ch');
-        if (chSelect) {
-            chSelect.addEventListener('change', () => {
-                this.formatsState.channels = parseInt(chSelect.value);
-                this.scheduleDraw(() => this.drawFormatsComparison(this.formatsState));
+        const channelsSelect = document.getElementById('fmt-ch');
+        if (channelsSelect) {
+            channelsSelect.addEventListener('change', () => {
+                this.formatsState.channels = parseInt(channelsSelect.value);
+                this.updateFormatsDisplay();
             });
         }
 
-        // Checkboxes
-        const checkboxes = {
-            'fmt-show-wav': 'wav',
-            'fmt-show-flac': 'flac',
-            'fmt-show-mp3': 'mp3',
-            'fmt-show-mp3-128': 'mp3_128',
-            'fmt-show-aac': 'aac',
-            'fmt-show-opus': 'opus'
-        };
-
-        Object.entries(checkboxes).forEach(([id, key]) => {
-            const checkbox = document.getElementById(id);
-            if (checkbox) {
-                checkbox.addEventListener('change', () => {
-                    this.formatsState.showFormats[key] = checkbox.checked;
-                    this.drawFormatsComparison(this.formatsState);
-                });
-            }
-        });
-
-        this.drawFormatsComparison(this.formatsState);
+        this.updateFormatsDisplay();
     }
 
-    drawFormatsComparison(state) {
-        const canvas = document.getElementById('formats-canvas');
-        if (!canvas) return;
-
-        const ctx = canvas.getContext('2d');
-        const colors = this.getThemeColors();
-        const width = canvas.width;
-        const height = canvas.height;
-
-        // Calcul des tailles
-        const baseBitrate = state.sampleRate * state.bitDepth * state.channels;
-        const durationSec = state.duration * 60;
-
-        const formats = [
-            { key: 'wav', name: 'WAV', type: 'Lossless', color: colors.signal, bitrate: baseBitrate },
-            { key: 'flac', name: 'FLAC', type: 'Lossless', color: colors.success, bitrate: baseBitrate * 0.5 },
-            { key: 'mp3', name: 'MP3 320k', type: 'Lossy', color: colors.warning, bitrate: 320000 },
-            { key: 'mp3_128', name: 'MP3 128k', type: 'Lossy', color: colors.quantized, bitrate: 128000 },
-            { key: 'aac', name: 'AAC 256k', type: 'Lossy', color: '#9d4edd', bitrate: 256000 },
-            { key: 'opus', name: 'Opus 128k', type: 'Lossy', color: '#06d6a0', bitrate: 128000 }
-        ];
-
-        // Filtrer les formats visibles
-        const visibleFormats = formats.filter(f => state.showFormats[f.key]);
-
-        if (visibleFormats.length === 0) {
-            ctx.fillStyle = colors.bg;
-            ctx.fillRect(0, 0, width, height);
-            ctx.fillStyle = colors.text;
-            ctx.font = '20px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('Sélectionnez au moins un format à comparer', width / 2, height / 2);
-            return;
-        }
-
-        // Calculer les tailles en MB
-        visibleFormats.forEach(f => {
-            f.sizeMB = (f.bitrate * durationSec) / (8 * 1024 * 1024);
-        });
-
-        const maxSize = Math.max(...visibleFormats.map(f => f.sizeMB));
-
-        // Fond
-        ctx.fillStyle = colors.bg;
-        ctx.fillRect(0, 0, width, height);
-
-        // Titre
-        ctx.fillStyle = colors.text;
-        ctx.font = 'bold 18px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText(`Comparaison pour ${state.duration} min - ${this.formatFreq(state.sampleRate)} ${state.bitDepth}bits ${state.channels}ch`, 20, 30);
-
-        // Graphique en barres
-        const barHeight = 50;
-        const barSpacing = 15;
-        const startY = 60;
-        const maxBarWidth = width - 250;
-
-        visibleFormats.forEach((fmt, idx) => {
-            const y = startY + idx * (barHeight + barSpacing);
-            const barWidth = (fmt.sizeMB / maxSize) * maxBarWidth;
-
-            // Barre
-            ctx.fillStyle = fmt.color;
-            ctx.fillRect(20, y, barWidth, barHeight);
-
-            // Nom du format
-            ctx.fillStyle = colors.text;
-            ctx.font = 'bold 16px Arial';
-            ctx.textAlign = 'left';
-            ctx.fillText(fmt.name, 30, y + 25);
-
-            // Type
-            ctx.font = '12px Arial';
-            ctx.fillText(fmt.type, 30, y + 42);
-
-            // Taille
-            ctx.font = 'bold 16px Arial';
-            ctx.textAlign = 'right';
-            const sizeText = fmt.sizeMB.toFixed(1) + ' MB';
-            ctx.fillText(sizeText, barWidth + 10, y + 30);
-
-            // Pourcentage par rapport au WAV
-            const wavSize = formats[0].sizeMB;
-            if (fmt.key !== 'wav' && wavSize > 0) {
-                const savings = ((wavSize - fmt.sizeMB) / wavSize * 100);
-                ctx.fillStyle = colors.success;
-                ctx.font = '14px Arial';
-                ctx.fillText(`-${savings.toFixed(0)}%`, width - 20, y + 30);
+    getFormatDefinitions() {
+        // Définitions complètes des formats audio
+        return [
+            {
+                key: 'wav',
+                name: 'WAV',
+                fullName: 'Waveform Audio File',
+                type: 'Lossless',
+                compression: 'Aucune',
+                quality: 5,
+                color: '#0d6efd',
+                usage: 'Production, mastering, archivage',
+                bitrateCalculated: true // Calculé dynamiquement
+            },
+            {
+                key: 'flac',
+                name: 'FLAC',
+                fullName: 'Free Lossless Audio Codec',
+                type: 'Lossless',
+                compression: '40-60%',
+                quality: 5,
+                color: '#198754',
+                usage: 'Archivage, streaming Hi-Fi',
+                compressionRatio: 0.5
+            },
+            {
+                key: 'alac',
+                name: 'ALAC',
+                fullName: 'Apple Lossless Audio Codec',
+                type: 'Lossless',
+                compression: '40-60%',
+                quality: 5,
+                color: '#20c997',
+                usage: 'Écosystème Apple, iTunes',
+                compressionRatio: 0.55
+            },
+            {
+                key: 'mp3_320',
+                name: 'MP3 320k',
+                fullName: 'MPEG-1 Audio Layer 3',
+                type: 'Lossy',
+                compression: '~90%',
+                quality: 4,
+                bitrate: 320000,
+                color: '#fd7e14',
+                usage: 'DJ, qualité maximale MP3'
+            },
+            {
+                key: 'aac_256',
+                name: 'AAC 256k',
+                fullName: 'Advanced Audio Coding',
+                type: 'Lossy',
+                compression: '~92%',
+                quality: 4,
+                bitrate: 256000,
+                color: '#9d4edd',
+                usage: 'Streaming, YouTube, iTunes'
+            },
+            {
+                key: 'mp3_192',
+                name: 'MP3 192k',
+                fullName: 'MPEG-1 Audio Layer 3',
+                type: 'Lossy',
+                compression: '~93%',
+                quality: 3,
+                bitrate: 192000,
+                color: '#ffc107',
+                usage: 'Streaming standard, podcasts'
+            },
+            {
+                key: 'opus_128',
+                name: 'Opus 128k',
+                fullName: 'Opus Interactive Audio Codec',
+                type: 'Lossy',
+                compression: '~94%',
+                quality: 4,
+                bitrate: 128000,
+                color: '#06d6a0',
+                usage: 'Streaming moderne, VoIP, Discord'
+            },
+            {
+                key: 'mp3_128',
+                name: 'MP3 128k',
+                fullName: 'MPEG-1 Audio Layer 3',
+                type: 'Lossy',
+                compression: '~95%',
+                quality: 2,
+                bitrate: 128000,
+                color: '#dc3545',
+                usage: 'Faible bande passante, ancien'
             }
+        ];
+    }
+
+    getQualityPreset(quality) {
+        const presets = {
+            'cd': { sampleRate: 44100, bitDepth: 16, label: 'CD Quality' },
+            'pro': { sampleRate: 48000, bitDepth: 24, label: 'Studio Pro' },
+            'hires': { sampleRate: 96000, bitDepth: 24, label: 'Hi-Res Audio' }
+        };
+        return presets[quality] || presets['pro'];
+    }
+
+    updateFormatsDisplay() {
+        const state = this.formatsState;
+        const preset = this.getQualityPreset(state.quality);
+        const formats = this.getFormatDefinitions();
+
+        // Calculer la taille de chaque format
+        const durationSec = state.duration * 60;
+        const wavBitrate = preset.sampleRate * preset.bitDepth * state.channels;
+
+        formats.forEach(fmt => {
+            if (fmt.bitrateCalculated) {
+                // WAV : calculé
+                fmt.calculatedBitrate = wavBitrate;
+            } else if (fmt.compressionRatio) {
+                // Lossless compressé : basé sur WAV
+                fmt.calculatedBitrate = wavBitrate * fmt.compressionRatio;
+            } else {
+                // Lossy : bitrate fixe
+                fmt.calculatedBitrate = fmt.bitrate;
+            }
+
+            fmt.sizeMB = (fmt.calculatedBitrate * durationSec) / (8 * 1024 * 1024);
         });
+
+        // Mettre à jour la visualisation par barres
+        this.updateFormatsBars(formats, preset, state);
 
         // Mettre à jour le tableau
-        this.updateFormatsTable(visibleFormats, formats[0].sizeMB);
+        this.updateFormatsTable(formats, preset, state);
     }
 
-    updateFormatsTable(visibleFormats, wavSize) {
+    updateFormatsBars(formats, preset, state) {
+        const container = document.getElementById('formats-bars');
+        if (!container) return;
+
+        container.innerHTML = '';
+        const maxSize = Math.max(...formats.map(f => f.sizeMB));
+
+        formats.forEach(fmt => {
+            const barItem = document.createElement('div');
+            barItem.className = 'format-bar-item';
+
+            const widthPercent = (fmt.sizeMB / maxSize) * 100;
+
+            // Label avec badge
+            const label = document.createElement('div');
+            label.className = 'format-bar-label';
+            label.innerHTML = `
+                ${fmt.name}
+                <span class="format-badge ${fmt.type.toLowerCase()}">${fmt.type}</span>
+            `;
+
+            // Wrapper + barre
+            const wrapper = document.createElement('div');
+            wrapper.className = 'format-bar-wrapper';
+
+            const fill = document.createElement('div');
+            fill.className = 'format-bar-fill';
+            fill.style.width = widthPercent + '%';
+            fill.style.background = fmt.color;
+
+            const text = document.createElement('div');
+            text.className = 'format-bar-text';
+            text.textContent = fmt.sizeMB.toFixed(1) + ' MB';
+            fill.appendChild(text);
+
+            wrapper.appendChild(fill);
+
+            // Économie par rapport au WAV
+            const savings = document.createElement('div');
+            savings.className = 'format-bar-savings';
+            if (fmt.key !== 'wav') {
+                const wavSize = formats[0].sizeMB;
+                const savingsPercent = ((wavSize - fmt.sizeMB) / wavSize * 100);
+                savings.textContent = `-${savingsPercent.toFixed(0)}%`;
+                savings.style.color = 'var(--success-color)';
+            } else {
+                savings.textContent = '—';
+                savings.style.color = 'var(--text-secondary)';
+            }
+
+            barItem.appendChild(label);
+            barItem.appendChild(wrapper);
+            barItem.appendChild(savings);
+            container.appendChild(barItem);
+        });
+    }
+
+    updateFormatsTable(formats, preset, state) {
         const tbody = document.getElementById('fmt-table-body');
         if (!tbody) return;
 
         tbody.innerHTML = '';
+        const wavSize = formats[0].sizeMB;
 
-        visibleFormats.forEach(fmt => {
+        formats.forEach(fmt => {
             const row = tbody.insertRow();
 
             // Format name
             const cellName = row.insertCell();
-            cellName.textContent = fmt.name;
-            cellName.style.fontWeight = '600';
+            cellName.innerHTML = `<span class="format-name">${fmt.name}</span><br><small style="color: var(--text-secondary)">${fmt.fullName}</small>`;
 
             // Type
             const cellType = row.insertCell();
-            cellType.textContent = fmt.type;
-            cellType.className = fmt.type === 'Lossless' ? 'format-type-lossless' : 'format-type-lossy';
+            cellType.innerHTML = `<span class="format-badge ${fmt.type.toLowerCase()}">${fmt.type}</span>`;
+
+            // Bitrate
+            const cellBitrate = row.insertCell();
+            const kbps = Math.round(fmt.calculatedBitrate / 1000);
+            cellBitrate.textContent = kbps >= 1000 ? (kbps / 1000).toFixed(1) + ' Mbps' : kbps + ' kbps';
 
             // Size
             const cellSize = row.insertCell();
-            cellSize.textContent = fmt.sizeMB.toFixed(1) + ' MB';
-            cellSize.className = 'format-size';
+            cellSize.innerHTML = `<span class="format-size">${fmt.sizeMB.toFixed(2)} MB</span>`;
 
-            // Savings
-            const cellSavings = row.insertCell();
+            // Compression
+            const cellCompression = row.insertCell();
             if (fmt.key === 'wav') {
-                cellSavings.textContent = '-';
+                cellCompression.textContent = '—';
             } else {
-                const savings = ((wavSize - fmt.sizeMB) / wavSize * 100);
-                cellSavings.textContent = savings.toFixed(1) + '%';
-                cellSavings.className = 'format-savings';
+                const savingsPercent = ((wavSize - fmt.sizeMB) / wavSize * 100);
+                cellCompression.innerHTML = `<span class="format-savings">${savingsPercent.toFixed(1)}%</span>`;
             }
 
-            // Quality
+            // Quality (stars)
             const cellQuality = row.insertCell();
-            const quality = {
-                'wav': '★★★★★',
-                'flac': '★★★★★',
-                'mp3': '★★★☆☆',
-                'mp3_128': '★★☆☆☆',
-                'aac': '★★★★☆',
-                'opus': '★★★★★'
-            };
-            cellQuality.textContent = quality[fmt.key] || '★★★☆☆';
+            const stars = '★'.repeat(fmt.quality) + '☆'.repeat(5 - fmt.quality);
+            cellQuality.textContent = stars;
+            cellQuality.style.color = '#ffc107';
+
+            // Usage
+            const cellUsage = row.insertCell();
+            cellUsage.innerHTML = `<span class="format-usage">${fmt.usage}</span>`;
         });
     }
 
