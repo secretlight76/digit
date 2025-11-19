@@ -39,6 +39,9 @@ class AudioLab {
             this.refreshActiveVisualization();
         });
 
+        // Initialiser le système de redimensionnement responsive
+        this.initResponsiveCanvas();
+
         // Initialiser les sections
         this.initPlayground();
         this.initSamplingLab();
@@ -49,6 +52,63 @@ class AudioLab {
         this.initFormatsComparison();
 
         this.showSection('playground');
+    }
+
+    // Système de redimensionnement responsive des canvas
+    initResponsiveCanvas() {
+        // Configuration des ratios pour chaque canvas
+        this.canvasConfigs = {
+            'playground-canvas': { ratio: 1200 / 300, minHeight: 180, maxHeight: 700 },
+            'sampling-canvas': { ratio: 900 / 500, minHeight: 200, maxHeight: 600 },
+            'quantization-canvas': { ratio: 900 / 500, minHeight: 200, maxHeight: 600 },
+            'aliasing-canvas': { ratio: 900 / 500, minHeight: 200, maxHeight: 600 },
+            'channels-canvas': { ratio: 900 / 500, minHeight: 200, maxHeight: 600 }
+        };
+
+        // Redimensionner tous les canvas
+        this.resizeAllCanvas();
+
+        // Écouter les changements de taille de fenêtre
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                this.resizeAllCanvas();
+                this.refreshActiveVisualization();
+            }, 150);
+        });
+    }
+
+    resizeAllCanvas() {
+        Object.keys(this.canvasConfigs).forEach(canvasId => {
+            this.resizeCanvas(canvasId);
+        });
+    }
+
+    resizeCanvas(canvasId) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const config = this.canvasConfigs[canvasId];
+        const container = canvas.parentElement;
+
+        // Obtenir la largeur du conteneur (en tenant compte du padding)
+        const containerStyle = window.getComputedStyle(container);
+        const paddingX = parseFloat(containerStyle.paddingLeft) + parseFloat(containerStyle.paddingRight);
+        const availableWidth = container.clientWidth - paddingX;
+
+        // Calculer la hauteur basée sur le ratio
+        let height = availableWidth / config.ratio;
+
+        // Appliquer les limites min/max
+        height = Math.max(config.minHeight, Math.min(config.maxHeight, height));
+
+        // Définir les dimensions du canvas
+        canvas.width = availableWidth;
+        canvas.height = height;
+
+        // Ajuster la hauteur CSS pour correspondre
+        canvas.style.height = height + 'px';
     }
 
     showSection(id) {
@@ -139,12 +199,6 @@ class AudioLab {
             bits: 16,
             channels: 2
         };
-
-        const canvas = document.getElementById('playground-canvas');
-        if (canvas) {
-            canvas.width = 1200;
-            canvas.height = 300;
-        }
 
         // Fréquence
         const freqSlider = document.getElementById('pg-frequency');
@@ -355,12 +409,6 @@ class AudioLab {
             signalFreq: 1000,
             sampleRate: 8000
         };
-
-        const canvas = document.getElementById('sampling-canvas');
-        if (canvas) {
-            canvas.width = 900;
-            canvas.height = 500;
-        }
 
         const freqSlider = document.getElementById('samp-signal-freq');
         const freqVal = document.getElementById('samp-freq-val');
@@ -631,12 +679,6 @@ class AudioLab {
             freq: 440
         };
 
-        const canvas = document.getElementById('quantization-canvas');
-        if (canvas) {
-            canvas.width = 900;
-            canvas.height = 500;
-        }
-
         const bitsSlider = document.getElementById('quant-bits');
         const bitsVal = document.getElementById('quant-bits-val');
         if (bitsSlider) {
@@ -797,12 +839,6 @@ class AudioLab {
             inputFreq: 5000,
             sampleRate: 8000
         };
-
-        const canvas = document.getElementById('aliasing-canvas');
-        if (canvas) {
-            canvas.width = 900;
-            canvas.height = 500;
-        }
 
         const freqSlider = document.getElementById('alias-input-freq');
         const freqVal = document.getElementById('alias-freq-val');
@@ -978,12 +1014,6 @@ class AudioLab {
             phase: 0
         };
 
-        const canvas = document.getElementById('channels-canvas');
-        if (canvas) {
-            canvas.width = 900;
-            canvas.height = 500;
-        }
-
         // Mode
         const modeSelect = document.getElementById('chan-mode');
         if (modeSelect) {
@@ -1119,26 +1149,37 @@ class AudioLab {
         );
         const normFactor = maxAmplitude > 0.001 ? 1 / maxAmplitude : 1;
 
-        // Layout simple et fixe - Canvas 900x500
-        // Canal Gauche: y=30 à y=235 (205px de hauteur)
-        // Canal Droit: y=265 à y=470 (205px de hauteur)
-        const ch1Top = 30;
-        const ch1Bottom = 235;
+        // Layout responsive - Calculs proportionnels basés sur la hauteur du canvas
+        // Marges et espacements en pourcentages
+        const topMargin = height * 0.06;       // 6% du haut pour marge
+        const channelGap = height * 0.06;      // 6% d'écart entre les canaux
+        const bottomMargin = height * 0.06;    // 6% du bas pour marge
+
+        // Hauteur disponible pour les deux canaux
+        const availableHeight = height - topMargin - bottomMargin - channelGap;
+        const channelHeight = availableHeight / 2;
+
+        // Canal Gauche (haut)
+        const ch1Top = topMargin;
+        const ch1Bottom = ch1Top + channelHeight;
         const ch1Center = (ch1Top + ch1Bottom) / 2;
-        const ch1Height = ch1Bottom - ch1Top;
+        const ch1Height = channelHeight;
 
-        const ch2Top = 265;
-        const ch2Bottom = 470;
+        // Canal Droit (bas)
+        const ch2Top = ch1Bottom + channelGap;
+        const ch2Bottom = ch2Top + channelHeight;
         const ch2Center = (ch2Top + ch2Bottom) / 2;
-        const ch2Height = ch2Bottom - ch2Top;
+        const ch2Height = channelHeight;
 
-        const signalAmplitude = 70; // ±70px max autour du centre (marges de sécurité)
+        // Amplitude du signal : 35% de la hauteur du canal (avec marge de sécurité)
+        const signalAmplitude = channelHeight * 0.35;
 
         // ===== CANAL GAUCHE =====
         ctx.fillStyle = colors.text;
-        ctx.font = 'bold 14px Arial';
+        const fontSize = Math.max(12, Math.min(16, height * 0.03));
+        ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'left';
-        ctx.fillText('Canal Gauche (L)', 10, ch1Top - 8);
+        ctx.fillText('Canal Gauche (L)', width * 0.015, ch1Top - fontSize * 0.5);
 
         // Grille
         ctx.strokeStyle = colors.grid;
@@ -1173,8 +1214,8 @@ class AudioLab {
 
         // ===== CANAL DROIT =====
         ctx.fillStyle = colors.text;
-        ctx.font = 'bold 14px Arial';
-        ctx.fillText('Canal Droit (R)', 10, ch2Top - 8);
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.fillText('Canal Droit (R)', width * 0.015, ch2Top - fontSize * 0.5);
 
         // Grille
         ctx.strokeStyle = colors.grid;
