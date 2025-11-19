@@ -280,6 +280,7 @@ class AudioLab {
                 grid: '#21262d',
                 signal: '#58a6ff',
                 sample: '#f85149',
+                reconstruction: '#a855f7',
                 quantized: '#f79c4c',
                 text: '#c9d1d9',
                 warning: '#d29922',
@@ -292,6 +293,7 @@ class AudioLab {
                 grid: '#e9ecef',
                 signal: '#0d6efd',
                 sample: '#dc3545',
+                reconstruction: '#8b5cf6',
                 quantized: '#fd7e14',
                 text: '#212529',
                 warning: '#ffc107',
@@ -502,6 +504,30 @@ class AudioLab {
         const totalSamplePoints = Math.min(Math.floor(cycles * samplesPerCycle), 150);
         const nyquist = state.sr / 2;
 
+        // Ligne de reconstruction reliant les points échantillonnés
+        ctx.strokeStyle = state.freq > nyquist ? colors.danger : colors.reconstruction;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.beginPath();
+        let firstPoint = true;
+        for (let i = 0; i < totalSamplePoints; i++) {
+            const ratio = i / totalSamplePoints;
+            const idx = Math.floor(ratio * pointsLength);
+            if (idx < pointsLength) {
+                const x = (idx / pointsLength) * width;
+                const y = height / 2 - (points[idx] * height * amplitude);
+                if (firstPoint) {
+                    ctx.moveTo(x, y);
+                    firstPoint = false;
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Dessiner les points d'échantillonnage
         ctx.fillStyle = state.freq > nyquist ? colors.danger : colors.sample;
         const pointRadius = width < 600 ? 3 : 5; // Adapter la taille des points
 
@@ -1101,15 +1127,6 @@ class AudioLab {
 
         ctx.restore();
 
-        // Générer signal échantillonné pour la FFT (64 échantillons)
-        const numSamples = 64;
-        const sampledSignal = [];
-        for (let i = 0; i < numSamples; i++) {
-            const t = i / state.sampleRate;
-            const value = Math.sin(twoPi * state.inputFreq * t);
-            sampledSignal.push(value);
-        }
-
         // === PARTIE 2: SPECTRE FFT ===
         ctx.save();
 
@@ -1132,44 +1149,32 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Calculer le spectre FFT
-        const spectrum = this.computeDFT(sampledSignal, numSamples / 2);
-
-        // Trouver le pic principal
-        let peakIdx = 0;
-        let peakValue = 0;
-        for (let i = 0; i < spectrum.length; i++) {
-            if (spectrum[i] > peakValue) {
-                peakValue = spectrum[i];
-                peakIdx = i;
-            }
-        }
-
-        // Calculer la fréquence du pic
-        const freqResolution = state.sampleRate / numSamples;
-        const perceivedFreq = peakIdx * freqResolution;
+        // Calculer la fréquence perçue (aliasée)
         const isAliasing = state.inputFreq > nyquist;
-
-        // Dessiner le spectre
-        const barWidth = width / spectrum.length;
+        const perceivedFreq = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
         const maxFreqDisplay = state.sampleRate / 2; // Afficher jusqu'à Nyquist
 
-        for (let i = 0; i < spectrum.length; i++) {
-            const freq = i * freqResolution;
-            if (freq > maxFreqDisplay) break;
+        // Hauteur des pics de fréquence
+        const peakHeight = freqHeight * 0.7;
 
-            const barHeight = (spectrum[i] / (peakValue || 1)) * freqHeight * 0.8;
-            const x = (freq / maxFreqDisplay) * width;
-            const y = freqTop + freqHeight - barHeight;
+        // 1. Dessiner la fréquence d'entrée (en bleu/cyan) si elle est dans la gamme visible
+        if (state.inputFreq <= maxFreqDisplay) {
+            const inputX = (state.inputFreq / maxFreqDisplay) * width;
+            ctx.fillStyle = colors.signal;
+            ctx.globalAlpha = 0.7;
+            // Barre de fréquence d'entrée
+            ctx.fillRect(inputX - 8, freqTop + freqHeight - peakHeight, 16, peakHeight);
+            ctx.globalAlpha = 1;
+        }
 
-            // Colorier différemment selon si c'est le pic aliasé
-            if (Math.abs(freq - perceivedFreq) < freqResolution * 2) {
-                ctx.fillStyle = isAliasing ? colors.danger : colors.success;
-            } else {
-                ctx.fillStyle = colors.grid;
-            }
-
-            ctx.fillRect(x, y, barWidth * 0.8, barHeight);
+        // 2. Dessiner la fréquence perçue (aliasée en rouge si aliasing, vert sinon)
+        if (isAliasing && perceivedFreq !== state.inputFreq) {
+            const perceivedX = (perceivedFreq / maxFreqDisplay) * width;
+            ctx.fillStyle = colors.danger;
+            ctx.globalAlpha = 0.8;
+            // Barre de fréquence aliasée
+            ctx.fillRect(perceivedX - 8, freqTop + freqHeight - peakHeight, 16, peakHeight);
+            ctx.globalAlpha = 1;
         }
 
         // Ligne de Nyquist
@@ -1187,21 +1192,37 @@ class AudioLab {
         ctx.fillStyle = colors.text;
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'left';
-        ctx.fillText('Spectre Fréquentiel (FFT)', 15, freqTop + 20);
+        ctx.fillText('Spectre Fréquentiel', 15, freqTop + 20);
 
         ctx.font = `${fontSize - 2}px Arial`;
         ctx.fillText(`Nyquist: ${this.formatFreq(nyquist)}`, nyquistX + 5, freqTop + 20);
 
-        // Annotation du pic
-        const peakX = (perceivedFreq / maxFreqDisplay) * width;
-        ctx.fillStyle = isAliasing ? colors.danger : colors.success;
-        ctx.fillText(`${perceivedFreq.toFixed(0)} Hz`, peakX + 5, freqTop + 40);
+        // Annotations des pics
+        ctx.font = `${fontSize - 1}px Arial`;
+
+        // Label fréquence d'entrée (bleu)
+        if (state.inputFreq <= maxFreqDisplay) {
+            const inputX = (state.inputFreq / maxFreqDisplay) * width;
+            ctx.fillStyle = colors.signal;
+            ctx.textAlign = 'center';
+            ctx.fillText(`${state.inputFreq.toFixed(0)} Hz`, inputX, freqTop + freqHeight - peakHeight - 5);
+            ctx.fillText('(entrée)', inputX, freqTop + freqHeight - peakHeight - 18);
+        }
+
+        // Label fréquence aliasée (rouge)
+        if (isAliasing && perceivedFreq !== state.inputFreq) {
+            const perceivedX = (perceivedFreq / maxFreqDisplay) * width;
+            ctx.fillStyle = colors.danger;
+            ctx.textAlign = 'center';
+            ctx.fillText(`${perceivedFreq.toFixed(0)} Hz`, perceivedX, freqTop + freqHeight - peakHeight - 5);
+            ctx.fillText('(alias)', perceivedX, freqTop + freqHeight - peakHeight - 18);
+        }
 
         // Message d'avertissement
+        ctx.textAlign = 'right';
         if (isAliasing) {
             ctx.fillStyle = colors.danger;
-            ctx.font = `bold ${fontSize + 2}px Arial`;
-            ctx.textAlign = 'right';
+            ctx.font = `bold ${fontSize + 1}px Arial`;
             ctx.fillText(`⚠️ ALIASING: ${state.inputFreq} Hz → ${perceivedFreq.toFixed(0)} Hz`, width - 15, freqTop + 20);
 
             document.getElementById('alias-perceived').textContent = this.formatFreq(perceivedFreq);
@@ -1211,7 +1232,6 @@ class AudioLab {
         } else {
             ctx.fillStyle = colors.success;
             ctx.font = `bold ${fontSize}px Arial`;
-            ctx.textAlign = 'right';
             ctx.fillText('✓ Pas d\'aliasing', width - 15, freqTop + 20);
 
             document.getElementById('alias-perceived').textContent = this.formatFreq(state.inputFreq);
@@ -1521,12 +1541,12 @@ class AudioLab {
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
-        // Axe horizontal (Mid)
+        // Axe horizontal (Side)
         ctx.beginPath();
         ctx.moveTo(gonoX - gonoRadius, gonoY);
         ctx.lineTo(gonoX + gonoRadius, gonoY);
         ctx.stroke();
-        // Axe vertical (Side)
+        // Axe vertical (Mid)
         ctx.beginPath();
         ctx.moveTo(gonoX, gonoY - gonoRadius);
         ctx.lineTo(gonoX, gonoY + gonoRadius);
@@ -1562,8 +1582,10 @@ class AudioLab {
             // Calculer Mid (L+R) et Side (L-R)
             const Mid = (L + R) / 2;
             const Side = (L - R) / 2;
-            const x = gonoX + Mid * gonoRadius;
-            const y = gonoY - Side * gonoRadius; // Inverser Y pour affichage correct
+            // X = Side (horizontal), Y = Mid (vertical)
+            // Quand L=R (mono), Side=0 donc ligne verticale au centre
+            const x = gonoX + Side * gonoRadius;
+            const y = gonoY - Mid * gonoRadius; // Inverser Y pour affichage correct
 
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
@@ -1578,10 +1600,10 @@ class AudioLab {
         ctx.fillText('Goniomètre (M/S)', gonoX, 20);
 
         ctx.font = `${fontSize - 2}px Arial`;
-        ctx.fillText('-M', gonoX - gonoRadius - 12, gonoY + 5);
-        ctx.fillText('+M', gonoX + gonoRadius + 12, gonoY + 5);
-        ctx.fillText('+S', gonoX, gonoY - gonoRadius - 5);
-        ctx.fillText('-S', gonoX, gonoY + gonoRadius + 15);
+        ctx.fillText('-S', gonoX - gonoRadius - 12, gonoY + 5);
+        ctx.fillText('+S', gonoX + gonoRadius + 12, gonoY + 5);
+        ctx.fillText('+M', gonoX, gonoY - gonoRadius - 5);
+        ctx.fillText('-M', gonoX, gonoY + gonoRadius + 15);
 
         ctx.restore();
 
