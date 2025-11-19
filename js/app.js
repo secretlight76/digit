@@ -824,32 +824,49 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // OPTIMISATION: Réduire de 1000 → 300 samples
-        const samples = 300;
-        const signalPoints = [];
+        // Zoomer sur 1-2 périodes pour mieux voir l'effet
+        const periodsToShow = 1.5;
+        const samplesPerPeriod = 80;
+        const totalSamples = Math.floor(periodsToShow * samplesPerPeriod);
         const twoPi = 2 * Math.PI;
 
-        for (let i = 0; i < samples; i++) {
-            const t = (i / samples) * 4 * twoPi;
-            signalPoints.push(Math.sin(t));
+        // Générer signal haute résolution
+        const signalPoints = [];
+        for (let i = 0; i < totalSamples; i++) {
+            const phase = (i / samplesPerPeriod) * twoPi;
+            signalPoints.push(Math.sin(phase));
         }
 
-        // Signal original (lisse)
+        // Dessiner les niveaux de quantification (lignes horizontales)
+        ctx.strokeStyle = colors.grid;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+        const amplitude = 0.42;
+        for (let i = 0; i < levels; i++) {
+            const levelValue = (i / (levels - 1)) * 2 - 1; // De -1 à +1
+            const y = height / 2 - (levelValue * height * amplitude);
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
+
+        // Signal original (lisse, semi-transparent)
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.5;
+        ctx.globalAlpha = 0.4;
         ctx.beginPath();
-        const pointsLength = signalPoints.length;
-        for (let i = 0; i < pointsLength; i++) {
-            const x = (i / pointsLength) * width;
-            const y = height / 2 - (signalPoints[i] * height * 0.45);
+        for (let i = 0; i < signalPoints.length; i++) {
+            const x = (i / signalPoints.length) * width;
+            const y = height / 2 - (signalPoints[i] * height * amplitude);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Signal quantifié (en escalier)
+        // Signal quantifié (en escalier, bien visible)
         const levelsDivisor = levels / 2;
         const quantizedPoints = signalPoints.map(val => {
             const level = Math.round((val + 1) * levelsDivisor);
@@ -859,37 +876,57 @@ class AudioLab {
         ctx.strokeStyle = colors.quantized;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        for (let i = 0; i < pointsLength; i++) {
-            const x = (i / pointsLength) * width;
-            const y = height / 2 - (quantizedPoints[i] * height * 0.45);
+        for (let i = 0; i < quantizedPoints.length; i++) {
+            const x = (i / quantizedPoints.length) * width;
+            const y = height / 2 - (quantizedPoints[i] * height * amplitude);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Infos
+        // Infos et légende
         const snr = 6.02 * state.bits + 1.76;
         const range = 6 * state.bits;
 
+        const fontSize = Math.max(12, Math.min(16, width * 0.02));
         ctx.fillStyle = colors.text;
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText(`Résolution: ${state.bits} bits`, 20, 40);
-        ctx.fillText(`Niveaux: ${levels.toLocaleString()}`, 20, 70);
-        ctx.fillText(`SNR: ${snr.toFixed(1)} dB`, 20, 100);
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.fillText(`${state.bits} bits → ${levels} niveaux`, 15, 25);
+        ctx.fillText(`SNR: ${snr.toFixed(1)} dB`, 15, 25 + fontSize + 5);
 
-        // Warning si faible résolution
+        // Légende
+        ctx.font = `${fontSize - 2}px Arial`;
+        let legendY = height - 60;
+
+        // Signal original
+        ctx.strokeStyle = colors.signal;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(15, legendY);
+        ctx.lineTo(45, legendY);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = colors.text;
+        ctx.fillText('Signal original', 55, legendY + 4);
+
+        // Signal quantifié
+        legendY += 20;
+        ctx.strokeStyle = colors.quantized;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(15, legendY);
+        ctx.lineTo(45, legendY);
+        ctx.stroke();
+        ctx.fillText('Signal quantifié (escalier)', 55, legendY + 4);
+
+        // Warning si très faible résolution
         if (state.bits <= 4) {
             ctx.fillStyle = colors.danger;
-            ctx.font = 'bold 24px Arial';
-            ctx.fillText('⚠️ Résolution très faible !', width - 350, 40);
-        } else if (state.bits <= 8) {
-            ctx.fillStyle = colors.warning;
-            ctx.font = 'bold 24px Arial';
-            ctx.fillText('⚠️ Résolution faible', width - 280, 40);
-        } else {
-            ctx.fillStyle = colors.success;
-            ctx.font = 'bold 24px Arial';
-            ctx.fillText('✓ Bonne résolution', width - 260, 40);
+            ctx.font = `bold ${fontSize + 2}px Arial`;
+            ctx.textAlign = 'right';
+            ctx.fillText('⚠️ Résolution très faible !', width - 15, 30);
         }
 
         // Mise à jour stats
