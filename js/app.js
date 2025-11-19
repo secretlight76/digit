@@ -277,12 +277,22 @@ class AudioLab {
     // ===== PLAYGROUND =====
     initPlayground() {
         this.playgroundState = {
+            waveType: 'sine',
             freq: 440,
             vol: 30,
             sr: 44100,
             bits: 16,
             channels: 2
         };
+
+        // Type d'onde
+        const waveTypeSelect = document.getElementById('pg-wave-type');
+        if (waveTypeSelect) {
+            waveTypeSelect.addEventListener('change', () => {
+                this.playgroundState.waveType = waveTypeSelect.value;
+                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
+            });
+        }
 
         // Fréquence
         const freqSlider = document.getElementById('pg-frequency');
@@ -303,6 +313,7 @@ class AudioLab {
             volSlider.addEventListener('input', () => {
                 this.playgroundState.vol = parseInt(volSlider.value);
                 volVal.textContent = this.playgroundState.vol;
+                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
             });
         }
 
@@ -407,17 +418,44 @@ class AudioLab {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        // Signal sinusoïdal - nombre de cycles basé sur la fréquence
-        const baseCycles = 3;
-        const cycles = baseCycles; // Garder 3 cycles pour la lisibilité
-        const samples = 300;
+        // Générateur de forme d'onde - fonction helper
+        const generateWaveform = (type, phase) => {
+            switch (type) {
+                case 'sine':
+                    return Math.sin(phase);
+                case 'square':
+                    return phase % (2 * Math.PI) < Math.PI ? 1 : -1;
+                case 'sawtooth':
+                    return 2 * ((phase / (2 * Math.PI)) % 1) - 1;
+                case 'triangle':
+                    const t = (phase / (2 * Math.PI)) % 1;
+                    return t < 0.5 ? 4 * t - 1 : 3 - 4 * t;
+                default:
+                    return Math.sin(phase);
+            }
+        };
+
+        // Nombre de cycles adaptatif selon la fréquence
+        let cycles;
+        if (state.freq < 200) cycles = 2;
+        else if (state.freq < 500) cycles = 3;
+        else if (state.freq < 1000) cycles = 4;
+        else if (state.freq < 2000) cycles = 6;
+        else if (state.freq < 3000) cycles = 8;
+        else cycles = 10;
+
+        const samples = 400;
         const points = [];
         const twoPi = 2 * Math.PI;
 
+        // Générer le signal avec le type d'onde sélectionné
         for (let i = 0; i < samples; i++) {
-            const t = (i / samples) * cycles * twoPi;
-            points.push(Math.sin(t));
+            const phase = (i / samples) * cycles * twoPi;
+            points.push(generateWaveform(state.waveType, phase));
         }
+
+        // Amplitude basée sur le volume (0-100%)
+        const amplitude = (state.vol / 100) * 0.4;
 
         // Dessiner onde continue
         ctx.strokeStyle = colors.signal;
@@ -426,27 +464,29 @@ class AudioLab {
         const pointsLength = points.length;
         for (let i = 0; i < pointsLength; i++) {
             const x = (i / pointsLength) * width;
-            const y = height / 2 - (points[i] * height * 0.4);
+            const y = height / 2 - (points[i] * height * amplitude);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Points d'échantillonnage (limiter à 100 max)
+        // Points d'échantillonnage (limiter à 150 max)
         const samplesPerCycle = state.sr / state.freq;
-        const totalSamplePoints = Math.min(Math.floor(cycles * samplesPerCycle), 100);
+        const totalSamplePoints = Math.min(Math.floor(cycles * samplesPerCycle), 150);
         const nyquist = state.sr / 2;
 
         ctx.fillStyle = state.freq > nyquist ? colors.danger : colors.sample;
+        const pointRadius = width < 600 ? 3 : 5; // Adapter la taille des points
+
         for (let i = 0; i < totalSamplePoints; i++) {
             const ratio = i / totalSamplePoints;
             const idx = Math.floor(ratio * pointsLength);
             if (idx < pointsLength) {
                 const x = (idx / pointsLength) * width;
-                const y = height / 2 - (points[idx] * height * 0.4);
+                const y = height / 2 - (points[idx] * height * amplitude);
 
                 ctx.beginPath();
-                ctx.arc(x, y, 5, 0, twoPi);
+                ctx.arc(x, y, pointRadius, 0, twoPi);
                 ctx.fill();
             }
         }
@@ -544,16 +584,17 @@ class AudioLab {
         const colors = this.getThemeColors();
         const { width, height } = this.getCanvasDimensions(canvas);
         const nyquist = state.sampleRate / 2;
+        const twoPi = 2 * Math.PI;
 
         // Fond
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
-        // Grille
+        // Grille simplifiée
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
-        for (let i = 0; i <= 10; i++) {
-            const y = (height / 10) * i;
+        for (let i = 0; i <= 8; i++) {
+            const y = (height / 8) * i;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
@@ -568,201 +609,132 @@ class AudioLab {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        // OPTIMISATION: Réduire de 2000 → 400 samples
-        const highResSamples = 400;
-        const signalPoints = [];
-        const twoPi = 2 * Math.PI;
-        const factor = 0.05 * state.signalFreq / highResSamples;
+        // Afficher seulement 3-5 périodes du signal (zoom)
+        const periodsToShow = state.signalFreq < 500 ? 3 : state.signalFreq < 2000 ? 4 : 5;
+        const samplesPerPeriod = 50; // Points par période pour une courbe lisse
+        const totalSamples = periodsToShow * samplesPerPeriod;
 
-        for (let i = 0; i < highResSamples; i++) {
-            signalPoints.push(Math.sin(twoPi * i * factor));
+        // Générer le signal original (haute résolution)
+        const signalPoints = [];
+        for (let i = 0; i < totalSamples; i++) {
+            const phase = (i / samplesPerPeriod) * twoPi;
+            signalPoints.push(Math.sin(phase));
         }
 
-        // Signal original (semi-transparent pour voir le signal reconstruit par-dessus)
+        // Dessiner le signal original (ligne continue bleue)
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.5;
         ctx.beginPath();
-        const pointsLength = signalPoints.length;
-        for (let i = 0; i < pointsLength; i++) {
-            const x = (i / pointsLength) * width;
-            const y = height / 2 - (signalPoints[i] * height * 0.4);
+        for (let i = 0; i < signalPoints.length; i++) {
+            const x = (i / signalPoints.length) * width;
+            const y = height / 2 - (signalPoints[i] * height * 0.35);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
-        ctx.globalAlpha = 1;
 
-        // Points échantillonnés (utiliser le nombre défini par l'utilisateur)
-        const numSamples = state.sampleCount || 50;
-        const sampleColor = state.signalFreq > nyquist ? colors.danger : colors.success;
+        // Calculer le nombre d'échantillons réels selon le sample rate
+        const duration = periodsToShow / state.signalFreq; // Durée en secondes
+        const realSamples = Math.floor(duration * state.sampleRate);
+        const numSamples = Math.min(realSamples, state.sampleCount);
 
         // Collecter les points échantillonnés
         const samplePoints = [];
         for (let i = 0; i < numSamples; i++) {
-            const ratio = i / numSamples;
-            const idx = Math.floor(ratio * pointsLength);
-            if (idx < pointsLength) {
-                const x = (idx / pointsLength) * width;
-                const y = signalPoints[idx];
-                samplePoints.push({ x, y });
-            }
+            const t = (i / (numSamples - 1)) * periodsToShow;
+            const phase = t * twoPi;
+            const value = Math.sin(phase);
+            const x = (t / periodsToShow) * width;
+            const y = height / 2 - (value * height * 0.35);
+            samplePoints.push({ x, y, value });
         }
 
-        // Calculer la fréquence perçue en cas d'aliasing
-        let perceivedFreq = state.signalFreq;
-        let isAliasing = false;
-        if (state.signalFreq > nyquist) {
-            isAliasing = true;
-            // Calculer la fréquence aliasée (repliement spectral)
-            const k = Math.floor(state.signalFreq / state.sampleRate);
-            const remainder = state.signalFreq % state.sampleRate;
-            perceivedFreq = k % 2 === 0 ? remainder : state.sampleRate - remainder;
-        }
-
-        // Si aliasing: dessiner le signal aliasé (ce que le système "entend" réellement)
-        if (isAliasing) {
-            ctx.strokeStyle = colors.danger;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 0.7;
+        // Lignes verticales depuis les points d'échantillonnage (en pointillés discrets)
+        ctx.strokeStyle = colors.grid;
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1;
+        samplePoints.forEach(pt => {
             ctx.beginPath();
-
-            const aliasFactor = 0.05 * perceivedFreq / highResSamples;
-            for (let i = 0; i < highResSamples; i++) {
-                const x = (i / highResSamples) * width;
-                const aliasedValue = Math.sin(twoPi * i * aliasFactor);
-                const y = height / 2 - (aliasedValue * height * 0.4);
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
+            ctx.moveTo(pt.x, 0);
+            ctx.lineTo(pt.x, height);
             ctx.stroke();
-            ctx.globalAlpha = 1;
-        }
+        });
+        ctx.setLineDash([]);
 
-        // NOUVEAU: Dessiner le signal "reconstruit" en reliant les points échantillonnés
-        // C'est ce que l'ordinateur "pense" être le signal
-        if (samplePoints.length > 1) {
-            ctx.strokeStyle = state.signalFreq > nyquist ? colors.danger : colors.success;
-            ctx.lineWidth = 3;
-            ctx.setLineDash([8, 4]);
-            ctx.beginPath();
-            for (let i = 0; i < samplePoints.length; i++) {
-                const x = samplePoints[i].x;
-                const y = height / 2 - (samplePoints[i].y * height * 0.4);
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        // Dessiner les points d'échantillonnage et lignes verticales
-        ctx.strokeStyle = sampleColor;
-        ctx.fillStyle = sampleColor;
+        // Signal reconstruit (ligne reliant les points échantillonnés)
+        const isAliasing = state.signalFreq > nyquist;
+        ctx.strokeStyle = isAliasing ? colors.danger : colors.success;
         ctx.lineWidth = 2;
-
-        for (let i = 0; i < samplePoints.length; i++) {
-            const x = samplePoints[i].x;
-            const y = height / 2 - (samplePoints[i].y * height * 0.4);
-
-            // Ligne verticale
-            ctx.beginPath();
-            ctx.setLineDash([5, 5]);
-            ctx.moveTo(x, height / 2);
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Point
-            ctx.beginPath();
-            ctx.arc(x, y, 6, 0, twoPi);
-            ctx.fill();
-        }
-
-        // Légende
-        ctx.fillStyle = colors.text;
-        ctx.font = '14px Arial';
-        ctx.textAlign = 'left';
-
-        let legendY = height - 100;
-
-        // Signal original
-        ctx.fillStyle = colors.signal;
-        ctx.globalAlpha = 0.5;
-        ctx.fillRect(20, legendY, 15, 3);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = colors.text;
-        ctx.fillText(`Signal original (${state.signalFreq} Hz)`, 40, legendY + 3);
-        legendY += 20;
-
-        // Si aliasing: montrer le signal aliasé
-        if (isAliasing) {
-            ctx.strokeStyle = colors.danger;
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(20, legendY);
-            ctx.lineTo(35, legendY);
-            ctx.stroke();
-            ctx.fillStyle = colors.text;
-            ctx.fillText(`Signal perçu/aliasé (${perceivedFreq.toFixed(0)} Hz) - Perte de fidélité!`, 40, legendY + 3);
-            legendY += 20;
-        }
-
-        // Signal reconstruit
-        const reconstructedColor = state.signalFreq > nyquist ? colors.danger : colors.success;
-        ctx.strokeStyle = reconstructedColor;
-        ctx.lineWidth = 3;
-        ctx.setLineDash([8, 4]);
+        ctx.setLineDash([5, 5]);
         ctx.beginPath();
-        ctx.moveTo(20, legendY);
-        ctx.lineTo(35, legendY);
+        samplePoints.forEach((pt, i) => {
+            if (i === 0) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
+        });
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = colors.text;
-        ctx.fillText('Points échantillonnés reliés', 40, legendY + 3);
-        legendY += 20;
 
-        // Points d'échantillonnage
-        ctx.fillStyle = reconstructedColor;
-        ctx.beginPath();
-        ctx.arc(27, legendY, 5, 0, twoPi);
-        ctx.fill();
-        ctx.fillStyle = colors.text;
-        ctx.fillText('Points d\'échantillonnage', 40, legendY + 3);
+        // Points d'échantillonnage (gros points)
+        ctx.fillStyle = isAliasing ? colors.danger : colors.success;
+        samplePoints.forEach(pt => {
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 6, 0, twoPi);
+            ctx.fill();
+        });
 
-        // Infos en haut
+        // Textes informatifs
+        ctx.fillStyle = colors.text;
+        const fontSize = Math.max(12, Math.min(16, width * 0.02));
+        ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'left';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText(`Signal: ${state.signalFreq} Hz`, 20, 40);
-        ctx.fillText(`Sample Rate: ${this.formatFreq(state.sampleRate)}`, 20, 70);
-        ctx.fillText(`Nyquist: ${this.formatFreq(nyquist)}`, 20, 100);
+        ctx.fillText(`${state.signalFreq} Hz @ ${this.formatFreq(state.sampleRate)}`, 15, 25);
+        ctx.fillText(`${numSamples} échantillons sur ${periodsToShow} période${periodsToShow > 1 ? 's' : ''}`, 15, 25 + fontSize + 5);
 
-        // Status
+        // Légende simplifiée
+        ctx.font = `${fontSize - 2}px Arial`;
+        let legendY = height - 60;
+
+        // Signal original (bleu)
+        ctx.strokeStyle = colors.signal;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(15, legendY);
+        ctx.lineTo(45, legendY);
+        ctx.stroke();
+        ctx.fillStyle = colors.text;
+        ctx.fillText('Signal original', 55, legendY + 4);
+
+        // Signal reconstruit (vert ou rouge)
+        legendY += 20;
+        ctx.strokeStyle = isAliasing ? colors.danger : colors.success;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(15, legendY);
+        ctx.lineTo(45, legendY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillText('Reconstruit' + (isAliasing ? ' (aliasing!)' : ''), 55, legendY + 4);
+
+        // Message d'avertissement si aliasing
+        if (isAliasing) {
+            ctx.fillStyle = colors.danger;
+            ctx.font = `bold ${fontSize + 2}px Arial`;
+            ctx.textAlign = 'right';
+            ctx.fillText('⚠️ SOUS-ÉCHANTILLONNAGE !', width - 15, 30);
+        }
+
+        // Mise à jour du statut dans l'interface
         const status = document.getElementById('samp-status');
         const nyquistDisplay = document.getElementById('samp-nyquist');
-        nyquistDisplay.textContent = this.formatFreq(nyquist);
-
-        if (state.signalFreq > nyquist) {
-            ctx.fillStyle = colors.danger;
-            ctx.font = 'bold 24px Arial';
-            ctx.textAlign = 'right';
-            ctx.fillText('⚠️ SOUS-ÉCHANTILLONNAGE !', width - 20, 40);
-            ctx.font = '16px Arial';
-            ctx.fillText(`Fréquence originale: ${state.signalFreq} Hz`, width - 20, 70);
-            ctx.fillText(`→ Perçue comme: ${perceivedFreq.toFixed(0)} Hz`, width - 20, 95);
-            ctx.fillText('Perte de fidélité des aigus!', width - 20, 120);
-            status.textContent = '✗ ALIASING';
-            status.className = 'status-error';
-        } else {
-            ctx.fillStyle = colors.success;
-            ctx.font = 'bold 24px Arial';
-            ctx.textAlign = 'right';
-            ctx.fillText('✓ Échantillonnage correct', width - 20, 40);
-            ctx.font = '16px Arial';
-            ctx.fillText('Le signal reconstruit est fidèle', width - 20, 70);
-            ctx.fillText('Fréquence préservée', width - 20, 95);
-            status.textContent = '✓ OK';
-            status.className = 'status-ok';
+        if (nyquistDisplay) nyquistDisplay.textContent = this.formatFreq(nyquist);
+        if (status) {
+            if (isAliasing) {
+                status.textContent = '✗ ALIASING';
+                status.className = 'status-error';
+            } else {
+                status.textContent = '✓ OK';
+                status.className = 'status-ok';
+            }
         }
     }
 
