@@ -1149,78 +1149,105 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Calculer la fréquence perçue (aliasée)
-        const isAliasing = state.inputFreq > nyquist;
-        const perceivedFreq = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
-        const maxFreqDisplay = state.sampleRate / 2; // Afficher jusqu'à Nyquist
+        // Zoom fixe : 20 Hz à 30000 Hz (indépendant du sample rate)
+        const minFreqDisplay = 20;
+        const maxFreqDisplay = 30000;
+        const freqRange = maxFreqDisplay - minFreqDisplay;
 
-        // Hauteur des pics de fréquence
+        const isAliasing = state.inputFreq > nyquist;
         const peakHeight = freqHeight * 0.7;
 
-        // 1. Dessiner la fréquence d'entrée (en bleu/cyan) si elle est dans la gamme visible
-        if (state.inputFreq <= maxFreqDisplay) {
-            const inputX = (state.inputFreq / maxFreqDisplay) * width;
+        // Fonction helper pour convertir fréquence en position X
+        const freqToX = (freq) => {
+            if (freq < minFreqDisplay || freq > maxFreqDisplay) return null;
+            return ((freq - minFreqDisplay) / freqRange) * width;
+        };
+
+        // 1. Dessiner la fréquence d'entrée (toujours en bleu, toujours au même endroit)
+        const inputX = freqToX(state.inputFreq);
+        if (inputX !== null) {
             ctx.fillStyle = colors.signal;
-            ctx.globalAlpha = 0.7;
-            // Barre de fréquence d'entrée
+            ctx.globalAlpha = 0.8;
             ctx.fillRect(inputX - 8, freqTop + freqHeight - peakHeight, 16, peakHeight);
             ctx.globalAlpha = 1;
-        }
 
-        // 2. Dessiner la fréquence perçue (aliasée en rouge si aliasing, vert sinon)
-        if (isAliasing && perceivedFreq !== state.inputFreq) {
-            const perceivedX = (perceivedFreq / maxFreqDisplay) * width;
-            ctx.fillStyle = colors.danger;
-            ctx.globalAlpha = 0.8;
-            // Barre de fréquence aliasée
-            ctx.fillRect(perceivedX - 8, freqTop + freqHeight - peakHeight, 16, peakHeight);
-            ctx.globalAlpha = 1;
-        }
-
-        // Ligne de Nyquist
-        const nyquistX = (nyquist / maxFreqDisplay) * width;
-        ctx.strokeStyle = colors.warning;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(nyquistX, freqTop);
-        ctx.lineTo(nyquistX, freqTop + freqHeight);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Labels
-        ctx.fillStyle = colors.text;
-        ctx.font = `bold ${fontSize}px Arial`;
-        ctx.textAlign = 'left';
-        ctx.fillText('Spectre Fréquentiel', 15, freqTop + 20);
-
-        ctx.font = `${fontSize - 2}px Arial`;
-        ctx.fillText(`Nyquist: ${this.formatFreq(nyquist)}`, nyquistX + 5, freqTop + 20);
-
-        // Annotations des pics
-        ctx.font = `${fontSize - 1}px Arial`;
-
-        // Label fréquence d'entrée (bleu)
-        if (state.inputFreq <= maxFreqDisplay) {
-            const inputX = (state.inputFreq / maxFreqDisplay) * width;
+            // Label fréquence d'entrée
             ctx.fillStyle = colors.signal;
+            ctx.font = `${fontSize - 1}px Arial`;
             ctx.textAlign = 'center';
             ctx.fillText(`${state.inputFreq.toFixed(0)} Hz`, inputX, freqTop + freqHeight - peakHeight - 5);
             ctx.fillText('(entrée)', inputX, freqTop + freqHeight - peakHeight - 18);
         }
 
-        // Label fréquence aliasée (rouge)
-        if (isAliasing && perceivedFreq !== state.inputFreq) {
-            const perceivedX = (perceivedFreq / maxFreqDisplay) * width;
+        // 2. Calculer et dessiner TOUS les alias visibles dans la gamme 20-30000 Hz
+        if (isAliasing) {
+            const aliases = this.calculateAllAliases(state.inputFreq, state.sampleRate, minFreqDisplay, maxFreqDisplay);
+
             ctx.fillStyle = colors.danger;
+            ctx.globalAlpha = 0.7;
+
+            for (const aliasFreq of aliases) {
+                const aliasX = freqToX(aliasFreq);
+                if (aliasX !== null && Math.abs(aliasX - (inputX || -1000)) > 20) { // Éviter overlap avec signal original
+                    ctx.fillRect(aliasX - 8, freqTop + freqHeight - peakHeight * 0.85, 16, peakHeight * 0.85);
+                }
+            }
+            ctx.globalAlpha = 1;
+
+            // Labels pour alias principaux
+            ctx.fillStyle = colors.danger;
+            ctx.font = `${fontSize - 2}px Arial`;
             ctx.textAlign = 'center';
-            ctx.fillText(`${perceivedFreq.toFixed(0)} Hz`, perceivedX, freqTop + freqHeight - peakHeight - 5);
-            ctx.fillText('(alias)', perceivedX, freqTop + freqHeight - peakHeight - 18);
+
+            const mainAlias = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
+            const mainAliasX = freqToX(mainAlias);
+            if (mainAliasX !== null) {
+                ctx.fillText(`${mainAlias.toFixed(0)} Hz`, mainAliasX, freqTop + freqHeight - peakHeight * 0.85 - 5);
+                ctx.fillText('(alias)', mainAliasX, freqTop + freqHeight - peakHeight * 0.85 - 18);
+            }
+        }
+
+        // 3. Ligne de Nyquist (si visible dans la gamme)
+        const nyquistX = freqToX(nyquist);
+        if (nyquistX !== null) {
+            ctx.strokeStyle = colors.warning;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(nyquistX, freqTop);
+            ctx.lineTo(nyquistX, freqTop + freqHeight);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Label Nyquist
+            ctx.fillStyle = colors.warning;
+            ctx.font = `${fontSize - 2}px Arial`;
+            ctx.textAlign = 'left';
+            ctx.fillText(`Nyquist: ${this.formatFreq(nyquist)}`, nyquistX + 5, freqTop + 20);
+        }
+
+        // Labels axes
+        ctx.fillStyle = colors.text;
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.fillText('Spectre Fréquentiel (20 Hz - 30 kHz)', 15, freqTop + 20);
+
+        // Échelle fréquentielle
+        ctx.font = `${fontSize - 2}px Arial`;
+        ctx.fillStyle = colors.text;
+        ctx.textAlign = 'center';
+        const freqMarkers = [100, 1000, 5000, 10000, 20000];
+        for (const marker of freqMarkers) {
+            const markerX = freqToX(marker);
+            if (markerX !== null) {
+                ctx.fillText(`${marker >= 1000 ? (marker / 1000) + 'k' : marker}`, markerX, freqTop + freqHeight + 15);
+            }
         }
 
         // Message d'avertissement
         ctx.textAlign = 'right';
         if (isAliasing) {
+            const perceivedFreq = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
             ctx.fillStyle = colors.danger;
             ctx.font = `bold ${fontSize + 1}px Arial`;
             ctx.fillText(`⚠️ ALIASING: ${state.inputFreq} Hz → ${perceivedFreq.toFixed(0)} Hz`, width - 15, freqTop + 20);
@@ -1242,6 +1269,34 @@ class AudioLab {
 
         ctx.restore();
         document.getElementById('alias-nyquist').textContent = this.formatFreq(nyquist);
+    }
+
+    // Calculer tous les alias d'un signal dans une gamme de fréquences donnée
+    calculateAllAliases(inputFreq, sampleRate, minFreq, maxFreq) {
+        const aliases = [];
+        const nyquist = sampleRate / 2;
+
+        // Générer les harmoniques de repliement
+        // Un signal à f génère des composantes à |n*sr ± f| où n = 1, 2, 3...
+        for (let n = 1; n <= 10; n++) { // Limiter à 10 harmoniques
+            // Repliement par le bas : n*sr - f
+            const alias1 = n * sampleRate - inputFreq;
+            // Repliement par le haut : n*sr + f
+            const alias2 = n * sampleRate + inputFreq;
+
+            // Ramener dans la bande 0-Nyquist et vérifier si visible
+            const foldedAlias1 = this.calculateAliasingFreq(alias1, sampleRate);
+            const foldedAlias2 = this.calculateAliasingFreq(alias2, sampleRate);
+
+            if (foldedAlias1 >= minFreq && foldedAlias1 <= maxFreq && !aliases.includes(foldedAlias1)) {
+                aliases.push(foldedAlias1);
+            }
+            if (foldedAlias2 >= minFreq && foldedAlias2 <= maxFreq && !aliases.includes(foldedAlias2)) {
+                aliases.push(foldedAlias2);
+            }
+        }
+
+        return aliases;
     }
 
     calculateAliasingFreq(inputFreq, sampleRate) {
@@ -1584,7 +1639,8 @@ class AudioLab {
             const Side = (L - R) / 2;
             // X = Side (horizontal), Y = Mid (vertical)
             // Quand L=R (mono), Side=0 donc ligne verticale au centre
-            const x = gonoX + Side * gonoRadius;
+            // Inverser signe X : quand on panoramise à droite (R>L), on va à droite
+            const x = gonoX - Side * gonoRadius;
             const y = gonoY - Mid * gonoRadius; // Inverser Y pour affichage correct
 
             if (i === 0) ctx.moveTo(x, y);
