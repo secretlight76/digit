@@ -346,17 +346,12 @@ body {
 
 canvas {
     display: block;
-    max-width: 100%;
-    height: auto;
     border-radius: 8px;
     background: var(--bg-card);
 }
 
 .responsive-canvas {
-    width: 100%;
-    height: auto;
-    min-height: 300px;
-    max-height: 600px;
+    /* Les dimensions sont gérées dynamiquement en JS avec DPR */
 }
 
 /* ==========================================
@@ -659,10 +654,6 @@ canvas {
     .container {
         max-width: 1600px;
     }
-
-    .responsive-canvas {
-        max-height: 700px;
-    }
 }
 
 /* Medium desktops (1200px - 1599px) */
@@ -677,11 +668,6 @@ canvas {
     .playground-grid,
     .lab-grid {
         grid-template-columns: 1fr;
-    }
-
-    .responsive-canvas {
-        min-height: 250px;
-        max-height: 500px;
     }
 
     .stats-panel {
@@ -734,11 +720,6 @@ canvas {
         flex: none;
         width: 100%;
     }
-
-    .responsive-canvas {
-        min-height: 200px;
-        max-height: 400px;
-    }
 }
 
 /* Large phones (640px) */
@@ -783,11 +764,6 @@ canvas {
     .control-panel,
     .calc-card {
         padding: 1rem;
-    }
-
-    .responsive-canvas {
-        min-height: 180px;
-        max-height: 350px;
     }
 
     .format-bar-label {

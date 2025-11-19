@@ -92,6 +92,9 @@ class AudioLab {
         const config = this.canvasConfigs[canvasId];
         const container = canvas.parentElement;
 
+        // Obtenir le device pixel ratio pour les écrans haute résolution (Retina, etc.)
+        const dpr = window.devicePixelRatio || 1;
+
         // Obtenir la largeur du conteneur (en tenant compte du padding)
         const containerStyle = window.getComputedStyle(container);
         const paddingX = parseFloat(containerStyle.paddingLeft) + parseFloat(containerStyle.paddingRight);
@@ -103,12 +106,29 @@ class AudioLab {
         // Appliquer les limites min/max
         height = Math.max(config.minHeight, Math.min(config.maxHeight, height));
 
-        // Définir les dimensions du canvas
-        canvas.width = availableWidth;
-        canvas.height = height;
-
-        // Ajuster la hauteur CSS pour correspondre
+        // Définir les dimensions CSS (taille d'affichage)
+        canvas.style.width = availableWidth + 'px';
         canvas.style.height = height + 'px';
+
+        // Définir les dimensions internes du canvas (résolution réelle × DPR pour netteté)
+        canvas.width = Math.floor(availableWidth * dpr);
+        canvas.height = Math.floor(height * dpr);
+
+        // Scaler le contexte pour compenser le DPR
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+
+        // Stocker les dimensions logiques pour le dessin
+        canvas.logicalWidth = availableWidth;
+        canvas.logicalHeight = height;
+    }
+
+    // Helper pour obtenir les dimensions logiques d'un canvas
+    getCanvasDimensions(canvas) {
+        return {
+            width: canvas.logicalWidth || canvas.width,
+            height: canvas.logicalHeight || canvas.height
+        };
     }
 
     showSection(id) {
@@ -298,8 +318,7 @@ class AudioLab {
 
         const ctx = canvas.getContext('2d');
         const colors = this.getThemeColors();
-        const width = canvas.width;
-        const height = canvas.height;
+        const { width, height } = this.getCanvasDimensions(canvas);
 
         // Fond
         ctx.fillStyle = colors.bg;
@@ -447,8 +466,7 @@ class AudioLab {
 
         const ctx = canvas.getContext('2d');
         const colors = this.getThemeColors();
-        const width = canvas.width;
-        const height = canvas.height;
+        const { width, height } = this.getCanvasDimensions(canvas);
         const nyquist = state.sampleRate / 2;
 
         // Fond
@@ -726,8 +744,7 @@ class AudioLab {
 
         const ctx = canvas.getContext('2d');
         const colors = this.getThemeColors();
-        const width = canvas.width;
-        const height = canvas.height;
+        const { width, height } = this.getCanvasDimensions(canvas);
 
         // Fond
         ctx.fillStyle = colors.bg;
@@ -877,8 +894,7 @@ class AudioLab {
 
         const ctx = canvas.getContext('2d');
         const colors = this.getThemeColors();
-        const width = canvas.width;
-        const height = canvas.height;
+        const { width, height } = this.getCanvasDimensions(canvas);
         const nyquist = state.sampleRate / 2;
 
         // Fond
@@ -1087,8 +1103,7 @@ class AudioLab {
 
         const ctx = canvas.getContext('2d');
         const colors = this.getThemeColors();
-        const width = canvas.width;
-        const height = canvas.height;
+        const { width, height } = this.getCanvasDimensions(canvas);
 
         // Fond
         ctx.fillStyle = colors.bg;
