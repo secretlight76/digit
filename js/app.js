@@ -180,6 +180,33 @@ class AudioLab {
         };
     }
 
+    // DFT simplifiée pour visualisation spectrale
+    computeDFT(signal, maxFreq) {
+        const N = signal.length;
+        const spectrum = [];
+        const twoPi = 2 * Math.PI;
+
+        // Ne calculer que les fréquences jusqu'à maxFreq
+        const numFreqs = Math.min(N / 2, maxFreq);
+
+        for (let k = 0; k < numFreqs; k++) {
+            let real = 0;
+            let imag = 0;
+
+            for (let n = 0; n < N; n++) {
+                const angle = (twoPi * k * n) / N;
+                real += signal[n] * Math.cos(angle);
+                imag -= signal[n] * Math.sin(angle);
+            }
+
+            // Magnitude (amplitude)
+            const magnitude = Math.sqrt(real * real + imag * imag) / N;
+            spectrum.push(magnitude);
+        }
+
+        return spectrum;
+    }
+
     showSection(id) {
         document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
         document.getElementById(id)?.classList.add('active');
@@ -798,31 +825,26 @@ class AudioLab {
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
-        // Niveaux de quantification (limiter l'affichage)
         const levels = Math.pow(2, state.bits);
-        const maxLevelsToShow = Math.min(levels, 64);
 
+        // Grille principale simplifiée
         ctx.strokeStyle = colors.grid;
-        ctx.lineWidth = 0.5;
-        ctx.setLineDash([2, 2]);
-        for (let i = 0; i <= maxLevelsToShow; i++) {
-            const y = (i / maxLevelsToShow) * height;
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(width, y);
-            ctx.stroke();
-        }
-        ctx.setLineDash([]);
-
-        // Grille principale
         ctx.lineWidth = 1;
-        for (let i = 0; i <= 10; i++) {
-            const y = (height / 10) * i;
+        for (let i = 0; i <= 8; i++) {
+            const y = (height / 8) * i;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
             ctx.stroke();
         }
+
+        // Ligne centrale
+        ctx.strokeStyle = colors.text;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, height / 2);
+        ctx.lineTo(width, height / 2);
+        ctx.stroke();
 
         // Zoomer sur 1-2 périodes pour mieux voir l'effet
         const periodsToShow = 1.5;
@@ -838,19 +860,26 @@ class AudioLab {
         }
 
         // Dessiner les niveaux de quantification (lignes horizontales)
-        ctx.strokeStyle = colors.grid;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 2]);
+        // Afficher seulement pour les faibles résolutions (< 8 bits) où c'est utile
         const amplitude = 0.42;
-        for (let i = 0; i < levels; i++) {
-            const levelValue = (i / (levels - 1)) * 2 - 1; // De -1 à +1
-            const y = height / 2 - (levelValue * height * amplitude);
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(width, y);
-            ctx.stroke();
+
+        if (state.bits <= 8) {
+            ctx.strokeStyle = colors.grid;
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([3, 3]);
+            ctx.globalAlpha = 0.5;
+
+            for (let i = 0; i < levels; i++) {
+                const levelValue = (i / (levels - 1)) * 2 - 1; // De -1 à +1
+                const y = height / 2 - (levelValue * height * amplitude);
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
         }
-        ctx.setLineDash([]);
 
         // Signal original (lisse, semi-transparent)
         ctx.strokeStyle = colors.signal;
@@ -981,16 +1010,28 @@ class AudioLab {
         const colors = this.getThemeColors();
         const { width, height } = this.getCanvasDimensions(canvas);
         const nyquist = state.sampleRate / 2;
+        const twoPi = 2 * Math.PI;
 
         // Fond
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
-        // Grille
+        // Diviser le canvas en deux parties
+        const timeHeight = height * 0.5; // 50% pour signal temporel
+        const freqHeight = height * 0.5; // 50% pour spectre FFT
+        const freqTop = timeHeight;
+
+        // === PARTIE 1: SIGNAL TEMPOREL ===
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, width, timeHeight);
+        ctx.clip();
+
+        // Grille temporelle
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
-        for (let i = 0; i <= 10; i++) {
-            const y = (height / 10) * i;
+        for (let i = 0; i <= 5; i++) {
+            const y = (timeHeight / 5) * i;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
@@ -1001,81 +1042,139 @@ class AudioLab {
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(0, height / 2);
-        ctx.lineTo(width, height / 2);
+        ctx.moveTo(0, timeHeight / 2);
+        ctx.lineTo(width, timeHeight / 2);
         ctx.stroke();
 
-        // OPTIMISATION: Réduire de 2000 → 400 samples
-        const highResSamples = 400;
-        const realSignal = [];
-        const twoPi = 2 * Math.PI;
-        const factor = 0.05 * state.inputFreq / highResSamples;
-
-        for (let i = 0; i < highResSamples; i++) {
-            realSignal.push(Math.sin(twoPi * i * factor));
+        // Générer signal échantillonné (64 échantillons)
+        const numSamples = 64;
+        const sampledSignal = [];
+        for (let i = 0; i < numSamples; i++) {
+            const t = i / state.sampleRate;
+            const value = Math.sin(twoPi * state.inputFreq * t);
+            sampledSignal.push(value);
         }
+
+        // Dessiner signal temporel simplifié (3 périodes visibles)
+        const periodsToShow = 3;
+        const samplesPerPeriod = 50;
+        const totalTimeSamples = periodsToShow * samplesPerPeriod;
 
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.7;
         ctx.beginPath();
-        const signalLength = realSignal.length;
-        for (let i = 0; i < signalLength; i++) {
-            const x = (i / signalLength) * width;
-            const y = height / 2 - (realSignal[i] * height * 0.4);
+        for (let i = 0; i < totalTimeSamples; i++) {
+            const phase = (i / samplesPerPeriod) * twoPi;
+            const value = Math.sin(phase);
+            const x = (i / totalTimeSamples) * width;
+            const y = timeHeight / 2 - (value * timeHeight * 0.35);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
-        ctx.globalAlpha = 1;
 
-        // Points échantillonnés (limiter à 40 max)
-        const numSamples = Math.min(Math.floor(state.sampleRate * 0.05), 40);
-        ctx.fillStyle = state.inputFreq > nyquist ? colors.danger : colors.success;
+        // Titre
+        const fontSize = Math.max(12, Math.min(14, width * 0.02));
+        ctx.fillStyle = colors.text;
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.fillText('Signal Temporel', 15, 20);
 
-        for (let i = 0; i < numSamples; i++) {
-            const ratio = i / numSamples;
-            const idx = Math.floor(ratio * signalLength);
-            if (idx < signalLength) {
-                const x = (idx / signalLength) * width;
-                const y = height / 2 - (realSignal[idx] * height * 0.4);
+        ctx.restore();
 
-                ctx.beginPath();
-                ctx.arc(x, y, 6, 0, twoPi);
-                ctx.fill();
+        // === PARTIE 2: SPECTRE FFT ===
+        ctx.save();
+
+        // Ligne de séparation
+        ctx.strokeStyle = colors.text;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, freqTop);
+        ctx.lineTo(width, freqTop);
+        ctx.stroke();
+
+        // Grille fréquentielle
+        ctx.strokeStyle = colors.grid;
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 5; i++) {
+            const y = freqTop + (freqHeight / 5) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        // Calculer le spectre FFT
+        const spectrum = this.computeDFT(sampledSignal, numSamples / 2);
+
+        // Trouver le pic principal
+        let peakIdx = 0;
+        let peakValue = 0;
+        for (let i = 0; i < spectrum.length; i++) {
+            if (spectrum[i] > peakValue) {
+                peakValue = spectrum[i];
+                peakIdx = i;
             }
         }
 
-        // Si aliasing, montrer signal perçu
-        if (state.inputFreq > nyquist) {
-            const perceivedFreq = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
-            const perceivedSignal = [];
-            const perceivedFactor = 0.05 * perceivedFreq / highResSamples;
+        // Calculer la fréquence du pic
+        const freqResolution = state.sampleRate / numSamples;
+        const perceivedFreq = peakIdx * freqResolution;
+        const isAliasing = state.inputFreq > nyquist;
 
-            for (let i = 0; i < highResSamples; i++) {
-                perceivedSignal.push(Math.sin(twoPi * i * perceivedFactor));
+        // Dessiner le spectre
+        const barWidth = width / spectrum.length;
+        const maxFreqDisplay = state.sampleRate / 2; // Afficher jusqu'à Nyquist
+
+        for (let i = 0; i < spectrum.length; i++) {
+            const freq = i * freqResolution;
+            if (freq > maxFreqDisplay) break;
+
+            const barHeight = (spectrum[i] / (peakValue || 1)) * freqHeight * 0.8;
+            const x = (freq / maxFreqDisplay) * width;
+            const y = freqTop + freqHeight - barHeight;
+
+            // Colorier différemment selon si c'est le pic aliasé
+            if (Math.abs(freq - perceivedFreq) < freqResolution * 2) {
+                ctx.fillStyle = isAliasing ? colors.danger : colors.success;
+            } else {
+                ctx.fillStyle = colors.grid;
             }
 
-            ctx.strokeStyle = colors.danger;
-            ctx.lineWidth = 4;
-            ctx.setLineDash([10, 5]);
-            ctx.beginPath();
-            for (let i = 0; i < signalLength; i++) {
-                const x = (i / signalLength) * width;
-                const y = height / 2 - (perceivedSignal[i] * height * 0.4);
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
+            ctx.fillRect(x, y, barWidth * 0.8, barHeight);
+        }
 
-            // Warnings
+        // Ligne de Nyquist
+        const nyquistX = (nyquist / maxFreqDisplay) * width;
+        ctx.strokeStyle = colors.warning;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(nyquistX, freqTop);
+        ctx.lineTo(nyquistX, freqTop + freqHeight);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Labels
+        ctx.fillStyle = colors.text;
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.fillText('Spectre Fréquentiel (FFT)', 15, freqTop + 20);
+
+        ctx.font = `${fontSize - 2}px Arial`;
+        ctx.fillText(`Nyquist: ${this.formatFreq(nyquist)}`, nyquistX + 5, freqTop + 20);
+
+        // Annotation du pic
+        const peakX = (perceivedFreq / maxFreqDisplay) * width;
+        ctx.fillStyle = isAliasing ? colors.danger : colors.success;
+        ctx.fillText(`${perceivedFreq.toFixed(0)} Hz`, peakX + 5, freqTop + 40);
+
+        // Message d'avertissement
+        if (isAliasing) {
             ctx.fillStyle = colors.danger;
-            ctx.font = 'bold 24px Arial';
-            ctx.fillText('⚠️ ALIASING !', width / 2 - 80, 40);
-            ctx.font = '18px Arial';
-            ctx.fillText(`Réel: ${state.inputFreq} Hz`, width / 2 - 100, 70);
-            ctx.fillText(`Perçu: ${perceivedFreq} Hz`, width / 2 - 100, 95);
+            ctx.font = `bold ${fontSize + 2}px Arial`;
+            ctx.textAlign = 'right';
+            ctx.fillText(`⚠️ ALIASING: ${state.inputFreq} Hz → ${perceivedFreq.toFixed(0)} Hz`, width - 15, freqTop + 20);
 
             document.getElementById('alias-perceived').textContent = this.formatFreq(perceivedFreq);
             const status = document.getElementById('alias-status');
@@ -1083,8 +1182,9 @@ class AudioLab {
             status.className = 'status-error';
         } else {
             ctx.fillStyle = colors.success;
-            ctx.font = 'bold 24px Arial';
-            ctx.fillText('✓ Pas d\'aliasing', width / 2 - 100, 40);
+            ctx.font = `bold ${fontSize}px Arial`;
+            ctx.textAlign = 'right';
+            ctx.fillText('✓ Pas d\'aliasing', width - 15, freqTop + 20);
 
             document.getElementById('alias-perceived').textContent = this.formatFreq(state.inputFreq);
             const status = document.getElementById('alias-status');
@@ -1092,6 +1192,7 @@ class AudioLab {
             status.className = 'status-ok';
         }
 
+        ctx.restore();
         document.getElementById('alias-nyquist').textContent = this.formatFreq(nyquist);
     }
 
