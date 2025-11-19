@@ -57,12 +57,17 @@ class AudioLab {
     // Système de redimensionnement responsive des canvas
     initResponsiveCanvas() {
         // Configuration des ratios pour chaque canvas
+        // Adaptation dynamique min/max selon la taille d'écran
+        const screenWidth = window.innerWidth;
+        const minHeight = screenWidth < 480 ? 150 : screenWidth < 768 ? 180 : 200;
+        const maxHeight = screenWidth < 480 ? 300 : screenWidth < 768 ? 400 : screenWidth < 1024 ? 500 : 600;
+
         this.canvasConfigs = {
-            'playground-canvas': { ratio: 1200 / 300, minHeight: 180, maxHeight: 700 },
-            'sampling-canvas': { ratio: 900 / 500, minHeight: 200, maxHeight: 600 },
-            'quantization-canvas': { ratio: 900 / 500, minHeight: 200, maxHeight: 600 },
-            'aliasing-canvas': { ratio: 900 / 500, minHeight: 200, maxHeight: 600 },
-            'channels-canvas': { ratio: 900 / 500, minHeight: 200, maxHeight: 600 }
+            'playground-canvas': { ratio: 1200 / 300, minHeight: minHeight * 0.9, maxHeight: maxHeight * 1.1 },
+            'sampling-canvas': { ratio: 900 / 500, minHeight: minHeight, maxHeight: maxHeight },
+            'quantization-canvas': { ratio: 900 / 500, minHeight: minHeight, maxHeight: maxHeight },
+            'aliasing-canvas': { ratio: 900 / 500, minHeight: minHeight, maxHeight: maxHeight },
+            'channels-canvas': { ratio: 900 / 500, minHeight: minHeight, maxHeight: maxHeight }
         };
 
         // Redimensionner tous les canvas
@@ -73,6 +78,22 @@ class AudioLab {
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimeout);
             resizeTimeout = setTimeout(() => {
+                // Recalculer les limites min/max selon la nouvelle taille d'écran
+                const screenWidth = window.innerWidth;
+                const minHeight = screenWidth < 480 ? 150 : screenWidth < 768 ? 180 : 200;
+                const maxHeight = screenWidth < 480 ? 300 : screenWidth < 768 ? 400 : screenWidth < 1024 ? 500 : 600;
+
+                // Mettre à jour les configs
+                Object.keys(this.canvasConfigs).forEach(canvasId => {
+                    if (canvasId === 'playground-canvas') {
+                        this.canvasConfigs[canvasId].minHeight = minHeight * 0.9;
+                        this.canvasConfigs[canvasId].maxHeight = maxHeight * 1.1;
+                    } else {
+                        this.canvasConfigs[canvasId].minHeight = minHeight;
+                        this.canvasConfigs[canvasId].maxHeight = maxHeight;
+                    }
+                });
+
                 this.resizeAllCanvas();
                 this.refreshActiveVisualization();
             }, 150);
@@ -386,15 +407,16 @@ class AudioLab {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        // OPTIMISATION: Réduire les samples de 1000 → 300
-        const cycles = 3;
+        // Signal sinusoïdal - nombre de cycles basé sur la fréquence
+        const baseCycles = 3;
+        const cycles = baseCycles; // Garder 3 cycles pour la lisibilité
         const samples = 300;
         const points = [];
         const twoPi = 2 * Math.PI;
 
         for (let i = 0; i < samples; i++) {
             const t = (i / samples) * cycles * twoPi;
-            points.push(Math.sin(t + state.freq / 100));
+            points.push(Math.sin(t));
         }
 
         // Dessiner onde continue
@@ -469,7 +491,8 @@ class AudioLab {
     initSamplingLab() {
         this.samplingState = {
             signalFreq: 1000,
-            sampleRate: 8000
+            sampleRate: 8000,
+            sampleCount: 50
         };
 
         const freqSlider = document.getElementById('samp-signal-freq');
@@ -488,6 +511,16 @@ class AudioLab {
             srSlider.addEventListener('input', () => {
                 this.samplingState.sampleRate = parseInt(srSlider.value);
                 srVal.textContent = this.samplingState.sampleRate;
+                this.scheduleDraw(() => this.drawSamplingWave(this.samplingState));
+            });
+        }
+
+        const countSlider = document.getElementById('samp-count');
+        const countVal = document.getElementById('samp-count-val');
+        if (countSlider) {
+            countSlider.addEventListener('input', () => {
+                this.samplingState.sampleCount = parseInt(countSlider.value);
+                countVal.textContent = this.samplingState.sampleCount;
                 this.scheduleDraw(() => this.drawSamplingWave(this.samplingState));
             });
         }
@@ -560,8 +593,8 @@ class AudioLab {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Points échantillonnés (limiter à 50 max)
-        const numSamples = Math.min(Math.floor(state.sampleRate * 0.05), 50);
+        // Points échantillonnés (utiliser le nombre défini par l'utilisateur)
+        const numSamples = state.sampleCount || 50;
         const sampleColor = state.signalFreq > nyquist ? colors.danger : colors.success;
 
         // Collecter les points échantillonnés
