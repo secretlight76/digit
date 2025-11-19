@@ -98,7 +98,25 @@ class AudioLab {
         // Obtenir la largeur du conteneur (en tenant compte du padding)
         const containerStyle = window.getComputedStyle(container);
         const paddingX = parseFloat(containerStyle.paddingLeft) + parseFloat(containerStyle.paddingRight);
-        const availableWidth = container.clientWidth - paddingX;
+        let availableWidth = container.clientWidth - paddingX;
+
+        // Si le container est caché (display: none), clientWidth sera 0
+        // Dans ce cas, utiliser une largeur par défaut ou la largeur du conteneur parent
+        if (availableWidth <= 0) {
+            // Remonter jusqu'à trouver un élément visible
+            let parent = container.parentElement;
+            while (parent && parent.clientWidth <= 0) {
+                parent = parent.parentElement;
+            }
+            if (parent && parent.clientWidth > 0) {
+                const parentStyle = window.getComputedStyle(parent);
+                const parentPaddingX = parseFloat(parentStyle.paddingLeft) + parseFloat(parentStyle.paddingRight);
+                availableWidth = parent.clientWidth - parentPaddingX - paddingX - 100; // Marge de sécurité
+            } else {
+                // Fallback: utiliser une largeur par défaut basée sur le viewport
+                availableWidth = Math.min(window.innerWidth * 0.8, 1200);
+            }
+        }
 
         // Calculer la hauteur basée sur le ratio
         let height = availableWidth / config.ratio;
@@ -106,28 +124,38 @@ class AudioLab {
         // Appliquer les limites min/max
         height = Math.max(config.minHeight, Math.min(config.maxHeight, height));
 
+        // Stocker les dimensions logiques AVANT de changer les dimensions du canvas
+        canvas.logicalWidth = availableWidth;
+        canvas.logicalHeight = height;
+        canvas.dpr = dpr; // Stocker le DPR pour référence
+
         // Définir les dimensions CSS (taille d'affichage)
         canvas.style.width = availableWidth + 'px';
         canvas.style.height = height + 'px';
 
         // Définir les dimensions internes du canvas (résolution réelle × DPR pour netteté)
+        // IMPORTANT : Changer width/height réinitialise automatiquement le contexte
         canvas.width = Math.floor(availableWidth * dpr);
         canvas.height = Math.floor(height * dpr);
 
-        // Scaler le contexte pour compenser le DPR
+        // Scaler le contexte pour compenser le DPR (après le reset automatique)
         const ctx = canvas.getContext('2d');
         ctx.scale(dpr, dpr);
-
-        // Stocker les dimensions logiques pour le dessin
-        canvas.logicalWidth = availableWidth;
-        canvas.logicalHeight = height;
     }
 
     // Helper pour obtenir les dimensions logiques d'un canvas
     getCanvasDimensions(canvas) {
+        // Utiliser les dimensions logiques si disponibles, sinon fallback sur les dimensions physiques
+        if (canvas.logicalWidth && canvas.logicalHeight) {
+            return {
+                width: canvas.logicalWidth,
+                height: canvas.logicalHeight
+            };
+        }
+        // Fallback : retourner les dimensions réelles (sans DPR)
         return {
-            width: canvas.logicalWidth || canvas.width,
-            height: canvas.logicalHeight || canvas.height
+            width: canvas.clientWidth || canvas.width,
+            height: canvas.clientHeight || canvas.height
         };
     }
 
@@ -136,7 +164,22 @@ class AudioLab {
         document.getElementById(id)?.classList.add('active');
         this.activeSection = id;
         this.stopAudio();
-        this.refreshActiveVisualization();
+
+        // Redimensionner le canvas de la section active (car il était peut-être caché avant)
+        setTimeout(() => {
+            const canvasMap = {
+                'playground': 'playground-canvas',
+                'sampling': 'sampling-canvas',
+                'quantization': 'quantization-canvas',
+                'aliasing': 'aliasing-canvas',
+                'channels': 'channels-canvas'
+            };
+            const canvasId = canvasMap[id];
+            if (canvasId) {
+                this.resizeCanvas(canvasId);
+            }
+            this.refreshActiveVisualization();
+        }, 50); // Petit délai pour que le CSS display prenne effet
     }
 
     getAudioContext() {
