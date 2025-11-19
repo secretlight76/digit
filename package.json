@@ -7,6 +7,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
+    "build": "echo 'Application statique - aucun build nécessaire'",
     "dev": "npx http-server -p 8080 -o",
     "start": "npx http-server -p 8080"
   },
