@@ -1,5 +1,5 @@
 /**
- * Lab Audio - Version Visuelle et Pédagogique
+ * Lab Audio - Version Optimisée et Allégée
  */
 
 class AudioLab {
@@ -7,6 +7,8 @@ class AudioLab {
         this.audioContext = null;
         this.currentSource = null;
         this.animationFrame = null;
+        this.activeSection = 'playground';
+        this.pendingDraws = new Set();
         this.init();
     }
 
@@ -34,7 +36,7 @@ class AudioLab {
             const newTheme = theme === 'light' ? 'dark' : 'light';
             document.body.setAttribute('data-theme', newTheme);
             localStorage.setItem('audio-theme', newTheme);
-            this.refreshAllVisualizations();
+            this.refreshActiveVisualization();
         });
 
         // Initialiser les sections
@@ -50,7 +52,9 @@ class AudioLab {
     showSection(id) {
         document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
         document.getElementById(id)?.classList.add('active');
+        this.activeSection = id;
         this.stopAudio();
+        this.refreshActiveVisualization();
     }
 
     getAudioContext() {
@@ -67,12 +71,28 @@ class AudioLab {
         }
     }
 
-    refreshAllVisualizations() {
-        // Redessiner toutes les visualisations actives
-        if (this.playgroundState) this.drawPlaygroundWave(this.playgroundState);
-        if (this.samplingState) this.drawSamplingWave(this.samplingState);
-        if (this.quantizationState) this.drawQuantizationWave(this.quantizationState);
-        if (this.aliasingState) this.drawAliasingWave(this.aliasingState);
+    // OPTIMISATION: Ne redessiner que la section active
+    refreshActiveVisualization() {
+        if (this.activeSection === 'playground' && this.playgroundState) {
+            this.drawPlaygroundWave(this.playgroundState);
+        } else if (this.activeSection === 'sampling' && this.samplingState) {
+            this.drawSamplingWave(this.samplingState);
+        } else if (this.activeSection === 'quantization' && this.quantizationState) {
+            this.drawQuantizationWave(this.quantizationState);
+        } else if (this.activeSection === 'aliasing' && this.aliasingState) {
+            this.drawAliasingWave(this.aliasingState);
+        }
+    }
+
+    // OPTIMISATION: Throttling avec requestAnimationFrame
+    scheduleDraw(drawFn) {
+        if (this.pendingDraws.has(drawFn.name)) return;
+
+        this.pendingDraws.add(drawFn.name);
+        requestAnimationFrame(() => {
+            drawFn.call(this);
+            this.pendingDraws.delete(drawFn.name);
+        });
     }
 
     getThemeColors() {
@@ -128,7 +148,7 @@ class AudioLab {
                 this.playgroundState.freq = parseInt(freqSlider.value);
                 freqVal.textContent = this.playgroundState.freq;
                 this.updatePlaygroundStats(this.playgroundState);
-                this.drawPlaygroundWave(this.playgroundState);
+                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
             });
         }
 
@@ -150,7 +170,7 @@ class AudioLab {
                 this.playgroundState.sr = parseInt(srSlider.value);
                 srVal.textContent = this.playgroundState.sr;
                 this.updatePlaygroundStats(this.playgroundState);
-                this.drawPlaygroundWave(this.playgroundState);
+                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
             });
         }
 
@@ -174,7 +194,7 @@ class AudioLab {
                 this.playgroundState.bits = parseInt(bdSlider.value);
                 bdVal.textContent = this.playgroundState.bits;
                 this.updatePlaygroundStats(this.playgroundState);
-                this.drawPlaygroundWave(this.playgroundState);
+                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
             });
         }
 
@@ -225,7 +245,7 @@ class AudioLab {
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
-        // Grille
+        // Grille simplifiée
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 10; i++) {
@@ -244,43 +264,45 @@ class AudioLab {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        // Générer signal
+        // OPTIMISATION: Réduire les samples de 1000 → 300
         const cycles = 3;
-        const samples = 1000;
+        const samples = 300;
         const points = [];
+        const twoPi = 2 * Math.PI;
+
         for (let i = 0; i < samples; i++) {
-            const t = (i / samples) * cycles * 2 * Math.PI;
-            const y = Math.sin(t + state.freq / 100);
-            points.push(y);
+            const t = (i / samples) * cycles * twoPi;
+            points.push(Math.sin(t + state.freq / 100));
         }
 
         // Dessiner onde continue
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        for (let i = 0; i < points.length; i++) {
-            const x = (i / points.length) * width;
+        const pointsLength = points.length;
+        for (let i = 0; i < pointsLength; i++) {
+            const x = (i / pointsLength) * width;
             const y = height / 2 - (points[i] * height * 0.4);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Points d'échantillonnage
+        // Points d'échantillonnage (limiter à 100 max)
         const samplesPerCycle = state.sr / state.freq;
-        const totalSamplePoints = Math.floor(cycles * samplesPerCycle);
+        const totalSamplePoints = Math.min(Math.floor(cycles * samplesPerCycle), 100);
         const nyquist = state.sr / 2;
 
         ctx.fillStyle = state.freq > nyquist ? colors.danger : colors.sample;
-        for (let i = 0; i < totalSamplePoints && i < 200; i++) {
+        for (let i = 0; i < totalSamplePoints; i++) {
             const ratio = i / totalSamplePoints;
-            const idx = Math.floor(ratio * points.length);
-            if (idx < points.length) {
-                const x = (idx / points.length) * width;
+            const idx = Math.floor(ratio * pointsLength);
+            if (idx < pointsLength) {
+                const x = (idx / pointsLength) * width;
                 const y = height / 2 - (points[idx] * height * 0.4);
 
                 ctx.beginPath();
-                ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                ctx.arc(x, y, 5, 0, twoPi);
                 ctx.fill();
             }
         }
@@ -340,7 +362,7 @@ class AudioLab {
             freqSlider.addEventListener('input', () => {
                 this.samplingState.signalFreq = parseInt(freqSlider.value);
                 freqVal.textContent = this.samplingState.signalFreq;
-                this.drawSamplingWave(this.samplingState);
+                this.scheduleDraw(() => this.drawSamplingWave(this.samplingState));
             });
         }
 
@@ -350,7 +372,7 @@ class AudioLab {
             srSlider.addEventListener('input', () => {
                 this.samplingState.sampleRate = parseInt(srSlider.value);
                 srVal.textContent = this.samplingState.sampleRate;
-                this.drawSamplingWave(this.samplingState);
+                this.scheduleDraw(() => this.drawSamplingWave(this.samplingState));
             });
         }
 
@@ -398,28 +420,30 @@ class AudioLab {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        // Signal continu
-        const highResSamples = 2000;
+        // OPTIMISATION: Réduire de 2000 → 400 samples
+        const highResSamples = 400;
         const signalPoints = [];
+        const twoPi = 2 * Math.PI;
+        const factor = 0.05 * state.signalFreq / highResSamples;
+
         for (let i = 0; i < highResSamples; i++) {
-            const t = (i / highResSamples) * 0.05 * state.signalFreq;
-            const y = Math.sin(2 * Math.PI * t);
-            signalPoints.push(y);
+            signalPoints.push(Math.sin(twoPi * i * factor));
         }
 
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        for (let i = 0; i < signalPoints.length; i++) {
-            const x = (i / signalPoints.length) * width;
+        const pointsLength = signalPoints.length;
+        for (let i = 0; i < pointsLength; i++) {
+            const x = (i / pointsLength) * width;
             const y = height / 2 - (signalPoints[i] * height * 0.4);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Points échantillonnés
-        const numSamples = Math.floor(state.sampleRate * 0.05);
+        // Points échantillonnés (limiter à 50 max)
+        const numSamples = Math.min(Math.floor(state.sampleRate * 0.05), 50);
         const sampleColor = state.signalFreq > nyquist ? colors.danger : colors.sample;
 
         ctx.strokeStyle = sampleColor;
@@ -428,9 +452,9 @@ class AudioLab {
 
         for (let i = 0; i < numSamples; i++) {
             const ratio = i / numSamples;
-            const idx = Math.floor(ratio * signalPoints.length);
-            if (idx < signalPoints.length) {
-                const x = (idx / signalPoints.length) * width;
+            const idx = Math.floor(ratio * pointsLength);
+            if (idx < pointsLength) {
+                const x = (idx / pointsLength) * width;
                 const y = height / 2 - (signalPoints[idx] * height * 0.4);
 
                 // Ligne verticale
@@ -443,7 +467,7 @@ class AudioLab {
 
                 // Point
                 ctx.beginPath();
-                ctx.arc(x, y, 6, 0, 2 * Math.PI);
+                ctx.arc(x, y, 6, 0, twoPi);
                 ctx.fill();
             }
         }
@@ -464,7 +488,7 @@ class AudioLab {
             ctx.fillStyle = colors.danger;
             ctx.font = 'bold 24px Arial';
             ctx.fillText('⚠️ ALIASING DÉTECTÉ !', width - 300, 40);
-            ctx.fillText('Signal trop rapide pour ce sample rate', width - 450, 70);
+            ctx.fillText('Signal trop rapide', width - 250, 70);
             status.textContent = '✗ ALIASING';
             status.className = 'status-error';
         } else {
@@ -495,7 +519,7 @@ class AudioLab {
             bitsSlider.addEventListener('input', () => {
                 this.quantizationState.bits = parseInt(bitsSlider.value);
                 bitsVal.textContent = this.quantizationState.bits;
-                this.drawQuantizationWave(this.quantizationState);
+                this.scheduleDraw(() => this.drawQuantizationWave(this.quantizationState));
             });
         }
 
@@ -515,7 +539,7 @@ class AudioLab {
             freqSlider.addEventListener('input', () => {
                 this.quantizationState.freq = parseInt(freqSlider.value);
                 freqVal.textContent = this.quantizationState.freq;
-                this.drawQuantizationWave(this.quantizationState);
+                this.scheduleDraw(() => this.drawQuantizationWave(this.quantizationState));
             });
         }
 
@@ -543,13 +567,15 @@ class AudioLab {
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
-        // Niveaux de quantification
+        // Niveaux de quantification (limiter l'affichage)
         const levels = Math.pow(2, state.bits);
+        const maxLevelsToShow = Math.min(levels, 64);
+
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 0.5;
         ctx.setLineDash([2, 2]);
-        for (let i = 0; i <= levels; i++) {
-            const y = (i / levels) * height;
+        for (let i = 0; i <= maxLevelsToShow; i++) {
+            const y = (i / maxLevelsToShow) * height;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
@@ -567,21 +593,24 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Signal original (lisse)
-        const samples = 1000;
+        // OPTIMISATION: Réduire de 1000 → 300 samples
+        const samples = 300;
         const signalPoints = [];
+        const twoPi = 2 * Math.PI;
+
         for (let i = 0; i < samples; i++) {
-            const t = (i / samples) * 4 * 2 * Math.PI;
-            const y = Math.sin(t);
-            signalPoints.push(y);
+            const t = (i / samples) * 4 * twoPi;
+            signalPoints.push(Math.sin(t));
         }
 
+        // Signal original (lisse)
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
         ctx.globalAlpha = 0.5;
         ctx.beginPath();
-        for (let i = 0; i < signalPoints.length; i++) {
-            const x = (i / signalPoints.length) * width;
+        const pointsLength = signalPoints.length;
+        for (let i = 0; i < pointsLength; i++) {
+            const x = (i / pointsLength) * width;
             const y = height / 2 - (signalPoints[i] * height * 0.45);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
@@ -590,16 +619,17 @@ class AudioLab {
         ctx.globalAlpha = 1;
 
         // Signal quantifié (en escalier)
+        const levelsDivisor = levels / 2;
         const quantizedPoints = signalPoints.map(val => {
-            const level = Math.round((val + 1) * (levels / 2));
-            return (level / (levels / 2)) - 1;
+            const level = Math.round((val + 1) * levelsDivisor);
+            return (level / levelsDivisor) - 1;
         });
 
         ctx.strokeStyle = colors.quantized;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        for (let i = 0; i < quantizedPoints.length; i++) {
-            const x = (i / quantizedPoints.length) * width;
+        for (let i = 0; i < pointsLength; i++) {
+            const x = (i / pointsLength) * width;
             const y = height / 2 - (quantizedPoints[i] * height * 0.45);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
@@ -621,7 +651,6 @@ class AudioLab {
             ctx.fillStyle = colors.danger;
             ctx.font = 'bold 24px Arial';
             ctx.fillText('⚠️ Résolution très faible !', width - 350, 40);
-            ctx.fillText('Bruit de quantification audible', width - 370, 70);
         } else if (state.bits <= 8) {
             ctx.fillStyle = colors.warning;
             ctx.font = 'bold 24px Arial';
@@ -657,7 +686,7 @@ class AudioLab {
             freqSlider.addEventListener('input', () => {
                 this.aliasingState.inputFreq = parseInt(freqSlider.value);
                 freqVal.textContent = this.aliasingState.inputFreq;
-                this.drawAliasingWave(this.aliasingState);
+                this.scheduleDraw(() => this.drawAliasingWave(this.aliasingState));
             });
         }
 
@@ -667,7 +696,7 @@ class AudioLab {
             srSlider.addEventListener('input', () => {
                 this.aliasingState.sampleRate = parseInt(srSlider.value);
                 srVal.textContent = this.aliasingState.sampleRate;
-                this.drawAliasingWave(this.aliasingState);
+                this.scheduleDraw(() => this.drawAliasingWave(this.aliasingState));
             });
         }
 
@@ -715,21 +744,23 @@ class AudioLab {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        // Signal réel haute fréquence
-        const highResSamples = 2000;
+        // OPTIMISATION: Réduire de 2000 → 400 samples
+        const highResSamples = 400;
         const realSignal = [];
+        const twoPi = 2 * Math.PI;
+        const factor = 0.05 * state.inputFreq / highResSamples;
+
         for (let i = 0; i < highResSamples; i++) {
-            const t = (i / highResSamples) * 0.05 * state.inputFreq;
-            const y = Math.sin(2 * Math.PI * t);
-            realSignal.push(y);
+            realSignal.push(Math.sin(twoPi * i * factor));
         }
 
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
         ctx.globalAlpha = 0.7;
         ctx.beginPath();
-        for (let i = 0; i < realSignal.length; i++) {
-            const x = (i / realSignal.length) * width;
+        const signalLength = realSignal.length;
+        for (let i = 0; i < signalLength; i++) {
+            const x = (i / signalLength) * width;
             const y = height / 2 - (realSignal[i] * height * 0.4);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
@@ -737,40 +768,39 @@ class AudioLab {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Points échantillonnés
-        const numSamples = Math.floor(state.sampleRate * 0.05);
+        // Points échantillonnés (limiter à 40 max)
+        const numSamples = Math.min(Math.floor(state.sampleRate * 0.05), 40);
         ctx.fillStyle = state.inputFreq > nyquist ? colors.danger : colors.success;
 
         for (let i = 0; i < numSamples; i++) {
             const ratio = i / numSamples;
-            const idx = Math.floor(ratio * realSignal.length);
-            if (idx < realSignal.length) {
-                const x = (idx / realSignal.length) * width;
+            const idx = Math.floor(ratio * signalLength);
+            if (idx < signalLength) {
+                const x = (idx / signalLength) * width;
                 const y = height / 2 - (realSignal[idx] * height * 0.4);
 
                 ctx.beginPath();
-                ctx.arc(x, y, 6, 0, 2 * Math.PI);
+                ctx.arc(x, y, 6, 0, twoPi);
                 ctx.fill();
             }
         }
 
         // Si aliasing, montrer signal perçu
         if (state.inputFreq > nyquist) {
-            // Calculer fréquence repliée
             const perceivedFreq = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
             const perceivedSignal = [];
+            const perceivedFactor = 0.05 * perceivedFreq / highResSamples;
+
             for (let i = 0; i < highResSamples; i++) {
-                const t = (i / highResSamples) * 0.05 * perceivedFreq;
-                const y = Math.sin(2 * Math.PI * t);
-                perceivedSignal.push(y);
+                perceivedSignal.push(Math.sin(twoPi * i * perceivedFactor));
             }
 
             ctx.strokeStyle = colors.danger;
             ctx.lineWidth = 4;
             ctx.setLineDash([10, 5]);
             ctx.beginPath();
-            for (let i = 0; i < perceivedSignal.length; i++) {
-                const x = (i / perceivedSignal.length) * width;
+            for (let i = 0; i < signalLength; i++) {
+                const x = (i / signalLength) * width;
                 const y = height / 2 - (perceivedSignal[i] * height * 0.4);
                 if (i === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
@@ -783,8 +813,8 @@ class AudioLab {
             ctx.font = 'bold 24px Arial';
             ctx.fillText('⚠️ ALIASING !', width / 2 - 80, 40);
             ctx.font = '18px Arial';
-            ctx.fillText(`Fréquence réelle: ${state.inputFreq} Hz`, width / 2 - 120, 70);
-            ctx.fillText(`Fréquence perçue: ${perceivedFreq} Hz (ligne pointillés)`, width / 2 - 200, 95);
+            ctx.fillText(`Réel: ${state.inputFreq} Hz`, width / 2 - 100, 70);
+            ctx.fillText(`Perçu: ${perceivedFreq} Hz`, width / 2 - 100, 95);
 
             document.getElementById('alias-perceived').textContent = this.formatFreq(perceivedFreq);
             const status = document.getElementById('alias-status');
@@ -811,11 +841,7 @@ class AudioLab {
         const foldCount = Math.floor(inputFreq / nyquist);
         const remainder = inputFreq % nyquist;
 
-        if (foldCount % 2 === 0) {
-            return remainder;
-        } else {
-            return nyquist - remainder;
-        }
+        return (foldCount % 2 === 0) ? remainder : nyquist - remainder;
     }
 
     playTone(freq, volume, duration) {
