@@ -1132,7 +1132,7 @@ class AudioLab {
         const ch2Center = (ch2Top + ch2Bottom) / 2;
         const ch2Height = ch2Bottom - ch2Top;
 
-        const signalAmplitude = 80; // ±80px max autour du centre
+        const signalAmplitude = 70; // ±70px max autour du centre (marges de sécurité)
 
         // ===== CANAL GAUCHE =====
         ctx.fillStyle = colors.text;
@@ -1161,7 +1161,7 @@ class AudioLab {
 
         // Signal gauche
         ctx.strokeStyle = '#58a6ff';
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         for (let i = 0; i < leftSignal.length; i++) {
             const x = (i / leftSignal.length) * width;
@@ -1197,7 +1197,7 @@ class AudioLab {
 
         // Signal droit
         ctx.strokeStyle = '#f85149';
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         for (let i = 0; i < rightSignal.length; i++) {
             const x = (i / rightSignal.length) * width;
