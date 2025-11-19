@@ -467,6 +467,36 @@ class AudioLab {
             }
         }
 
+        // Calculer la fréquence perçue en cas d'aliasing
+        let perceivedFreq = state.signalFreq;
+        let isAliasing = false;
+        if (state.signalFreq > nyquist) {
+            isAliasing = true;
+            // Calculer la fréquence aliasée (repliement spectral)
+            const k = Math.floor(state.signalFreq / state.sampleRate);
+            const remainder = state.signalFreq % state.sampleRate;
+            perceivedFreq = k % 2 === 0 ? remainder : state.sampleRate - remainder;
+        }
+
+        // Si aliasing: dessiner le signal aliasé (ce que le système "entend" réellement)
+        if (isAliasing) {
+            ctx.strokeStyle = colors.danger;
+            ctx.lineWidth = 3;
+            ctx.globalAlpha = 0.7;
+            ctx.beginPath();
+
+            const aliasFactor = 0.05 * perceivedFreq / highResSamples;
+            for (let i = 0; i < highResSamples; i++) {
+                const x = (i / highResSamples) * width;
+                const aliasedValue = Math.sin(twoPi * i * aliasFactor);
+                const y = height / 2 - (aliasedValue * height * 0.4);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+
         // NOUVEAU: Dessiner le signal "reconstruit" en reliant les points échantillonnés
         // C'est ce que l'ordinateur "pense" être le signal
         if (samplePoints.length > 1) {
@@ -512,11 +542,29 @@ class AudioLab {
         ctx.font = '14px Arial';
         ctx.textAlign = 'left';
 
+        let legendY = height - 100;
+
         // Signal original
         ctx.fillStyle = colors.signal;
-        ctx.fillRect(20, height - 80, 15, 3);
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(20, legendY, 15, 3);
+        ctx.globalAlpha = 1;
         ctx.fillStyle = colors.text;
-        ctx.fillText('Signal original', 40, height - 75);
+        ctx.fillText(`Signal original (${state.signalFreq} Hz)`, 40, legendY + 3);
+        legendY += 20;
+
+        // Si aliasing: montrer le signal aliasé
+        if (isAliasing) {
+            ctx.strokeStyle = colors.danger;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(20, legendY);
+            ctx.lineTo(35, legendY);
+            ctx.stroke();
+            ctx.fillStyle = colors.text;
+            ctx.fillText(`Signal perçu/aliasé (${perceivedFreq.toFixed(0)} Hz) - Perte de fidélité!`, 40, legendY + 3);
+            legendY += 20;
+        }
 
         // Signal reconstruit
         const reconstructedColor = state.signalFreq > nyquist ? colors.danger : colors.success;
@@ -524,20 +572,21 @@ class AudioLab {
         ctx.lineWidth = 3;
         ctx.setLineDash([8, 4]);
         ctx.beginPath();
-        ctx.moveTo(20, height - 58);
-        ctx.lineTo(35, height - 58);
+        ctx.moveTo(20, legendY);
+        ctx.lineTo(35, legendY);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = colors.text;
-        ctx.fillText('Signal reconstruit (échantillonné)', 40, height - 55);
+        ctx.fillText('Points échantillonnés reliés', 40, legendY + 3);
+        legendY += 20;
 
         // Points d'échantillonnage
         ctx.fillStyle = reconstructedColor;
         ctx.beginPath();
-        ctx.arc(27, height - 38, 5, 0, twoPi);
+        ctx.arc(27, legendY, 5, 0, twoPi);
         ctx.fill();
         ctx.fillStyle = colors.text;
-        ctx.fillText('Points d\'échantillonnage', 40, height - 35);
+        ctx.fillText('Points d\'échantillonnage', 40, legendY + 3);
 
         // Infos en haut
         ctx.textAlign = 'left';
@@ -555,10 +604,11 @@ class AudioLab {
             ctx.fillStyle = colors.danger;
             ctx.font = 'bold 24px Arial';
             ctx.textAlign = 'right';
-            ctx.fillText('⚠️ ALIASING !', width - 20, 40);
+            ctx.fillText('⚠️ SOUS-ÉCHANTILLONNAGE !', width - 20, 40);
             ctx.font = '16px Arial';
-            ctx.fillText('Le signal reconstruit ne correspond', width - 20, 70);
-            ctx.fillText('PAS au signal original !', width - 20, 95);
+            ctx.fillText(`Fréquence originale: ${state.signalFreq} Hz`, width - 20, 70);
+            ctx.fillText(`→ Perçue comme: ${perceivedFreq.toFixed(0)} Hz`, width - 20, 95);
+            ctx.fillText('Perte de fidélité des aigus!', width - 20, 120);
             status.textContent = '✗ ALIASING';
             status.className = 'status-error';
         } else {
@@ -568,6 +618,7 @@ class AudioLab {
             ctx.fillText('✓ Échantillonnage correct', width - 20, 40);
             ctx.font = '16px Arial';
             ctx.fillText('Le signal reconstruit est fidèle', width - 20, 70);
+            ctx.fillText('Fréquence préservée', width - 20, 95);
             status.textContent = '✓ OK';
             status.className = 'status-ok';
         }
@@ -1061,6 +1112,13 @@ class AudioLab {
             rightSignal.push(right);
         }
 
+        // Normaliser les signaux pour éviter l'overflow
+        const maxAmplitude = Math.max(
+            Math.max(...leftSignal.map(Math.abs)),
+            Math.max(...rightSignal.map(Math.abs))
+        );
+        const normFactor = maxAmplitude > 1 ? 1 / maxAmplitude : 1;
+
         // Dessiner les 2 canaux
         const channelHeight = (height - 80) / 2;
         const channelY1 = 50;
@@ -1098,7 +1156,7 @@ class AudioLab {
         ctx.beginPath();
         for (let i = 0; i < leftSignal.length; i++) {
             const x = (i / leftSignal.length) * width;
-            const y = leftMidY - (leftSignal[i] * channelHeight * 0.4);
+            const y = leftMidY - (leftSignal[i] * normFactor * channelHeight * 0.4);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
@@ -1135,7 +1193,7 @@ class AudioLab {
         ctx.beginPath();
         for (let i = 0; i < rightSignal.length; i++) {
             const x = (i / rightSignal.length) * width;
-            const y = rightMidY - (rightSignal[i] * channelHeight * 0.4);
+            const y = rightMidY - (rightSignal[i] * normFactor * channelHeight * 0.4);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
