@@ -1295,6 +1295,11 @@ class AudioLab {
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
+        // Diviser le canvas en deux parties
+        const waveformWidth = width * 0.58;  // 58% pour formes d'ondes
+        const goniometerWidth = width * 0.42;  // 42% pour goniomètre
+        const goniometerLeft = waveformWidth;
+
         // Calculer les niveaux L/R basés sur le pan (-100 à 100)
         const panNorm = state.pan / 100; // -1 à 1
         const leftGain = Math.cos((panNorm + 1) * Math.PI / 4);
@@ -1375,12 +1380,18 @@ class AudioLab {
         // Amplitude du signal : 35% de la hauteur du canal (avec marge de sécurité)
         const signalAmplitude = channelHeight * 0.35;
 
+        // === PARTIE 1: FORMES D'ONDES (GAUCHE) ===
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, waveformWidth, height);
+        ctx.clip();
+
         // ===== CANAL GAUCHE =====
         ctx.fillStyle = colors.text;
-        const fontSize = Math.max(12, Math.min(16, height * 0.03));
+        const fontSize = Math.max(12, Math.min(14, height * 0.025));
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'left';
-        ctx.fillText('Canal Gauche (L)', width * 0.015, ch1Top - fontSize * 0.5);
+        ctx.fillText('Canal Gauche (L)', waveformWidth * 0.02, ch1Top - fontSize * 0.5);
 
         // Grille
         ctx.strokeStyle = colors.grid;
@@ -1389,7 +1400,7 @@ class AudioLab {
             const y = ch1Top + (ch1Height / 4) * i;
             ctx.beginPath();
             ctx.moveTo(0, y);
-            ctx.lineTo(width, y);
+            ctx.lineTo(waveformWidth, y);
             ctx.stroke();
         }
 
@@ -1398,7 +1409,7 @@ class AudioLab {
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(0, ch1Center);
-        ctx.lineTo(width, ch1Center);
+        ctx.lineTo(waveformWidth, ch1Center);
         ctx.stroke();
 
         // Signal gauche
@@ -1406,7 +1417,7 @@ class AudioLab {
         ctx.lineWidth = 2;
         ctx.beginPath();
         for (let i = 0; i < leftSignal.length; i++) {
-            const x = (i / leftSignal.length) * width;
+            const x = (i / leftSignal.length) * waveformWidth;
             const y = ch1Center - (leftSignal[i] * normFactor * signalAmplitude);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
@@ -1416,7 +1427,7 @@ class AudioLab {
         // ===== CANAL DROIT =====
         ctx.fillStyle = colors.text;
         ctx.font = `bold ${fontSize}px Arial`;
-        ctx.fillText('Canal Droit (R)', width * 0.015, ch2Top - fontSize * 0.5);
+        ctx.fillText('Canal Droit (R)', waveformWidth * 0.02, ch2Top - fontSize * 0.5);
 
         // Grille
         ctx.strokeStyle = colors.grid;
@@ -1425,7 +1436,7 @@ class AudioLab {
             const y = ch2Top + (ch2Height / 4) * i;
             ctx.beginPath();
             ctx.moveTo(0, y);
-            ctx.lineTo(width, y);
+            ctx.lineTo(waveformWidth, y);
             ctx.stroke();
         }
 
@@ -1434,7 +1445,7 @@ class AudioLab {
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(0, ch2Center);
-        ctx.lineTo(width, ch2Center);
+        ctx.lineTo(waveformWidth, ch2Center);
         ctx.stroke();
 
         // Signal droit
@@ -1442,12 +1453,106 @@ class AudioLab {
         ctx.lineWidth = 2;
         ctx.beginPath();
         for (let i = 0; i < rightSignal.length; i++) {
-            const x = (i / rightSignal.length) * width;
+            const x = (i / rightSignal.length) * waveformWidth;
             const y = ch2Center - (rightSignal[i] * normFactor * signalAmplitude);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
+
+        ctx.restore();
+
+        // === PARTIE 2: GONIOMÈTRE (DROITE) ===
+        ctx.save();
+
+        // Ligne de séparation verticale
+        ctx.strokeStyle = colors.text;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(goniometerLeft, 0);
+        ctx.lineTo(goniometerLeft, height);
+        ctx.stroke();
+
+        // Centre du goniomètre
+        const gonoX = goniometerLeft + goniometerWidth / 2;
+        const gonoY = height / 2;
+        const gonoRadius = Math.min(goniometerWidth, height) * 0.4;
+
+        // Grille circulaire du goniomètre
+        ctx.strokeStyle = colors.grid;
+        ctx.lineWidth = 1;
+
+        // Cercles concentriques
+        for (let i = 1; i <= 3; i++) {
+            ctx.beginPath();
+            ctx.arc(gonoX, gonoY, (gonoRadius / 3) * i, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // Axes X et Y
+        ctx.strokeStyle = colors.text;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        // Axe horizontal (L)
+        ctx.beginPath();
+        ctx.moveTo(gonoX - gonoRadius, gonoY);
+        ctx.lineTo(gonoX + gonoRadius, gonoY);
+        ctx.stroke();
+        // Axe vertical (R)
+        ctx.beginPath();
+        ctx.moveTo(gonoX, gonoY - gonoRadius);
+        ctx.lineTo(gonoX, gonoY + gonoRadius);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Diagonales (mono)
+        ctx.strokeStyle = colors.grid;
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath();
+        ctx.moveTo(gonoX - gonoRadius * 0.7, gonoY - gonoRadius * 0.7);
+        ctx.lineTo(gonoX + gonoRadius * 0.7, gonoY + gonoRadius * 0.7);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(gonoX - gonoRadius * 0.7, gonoY + gonoRadius * 0.7);
+        ctx.lineTo(gonoX + gonoRadius * 0.7, gonoY - gonoRadius * 0.7);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        // Dessiner le tracé Lissajous (L vs R)
+        // Sous-échantillonner pour de meilleures performances
+        const gonoSampleStep = Math.max(1, Math.floor(leftSignal.length / 100));
+
+        // Tracer la courbe
+        ctx.strokeStyle = '#a855f7'; // Violet
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+
+        for (let i = 0; i < leftSignal.length; i += gonoSampleStep) {
+            const L = leftSignal[i] * normFactor;
+            const R = rightSignal[i] * normFactor;
+            const x = gonoX + L * gonoRadius;
+            const y = gonoY - R * gonoRadius; // Inverser Y pour affichage correct
+
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        // Labels
+        ctx.fillStyle = colors.text;
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText('Goniomètre', gonoX, 20);
+
+        ctx.font = `${fontSize - 2}px Arial`;
+        ctx.fillText('L', gonoX - gonoRadius - 10, gonoY + 5);
+        ctx.fillText('L', gonoX + gonoRadius + 10, gonoY + 5);
+        ctx.fillText('R', gonoX, gonoY - gonoRadius - 5);
+        ctx.fillText('R', gonoX, gonoY + gonoRadius + 15);
+
+        ctx.restore();
 
         // Calculer statistiques
         const leftPower = leftSignal.reduce((sum, v) => sum + v * v, 0) / leftSignal.length;
