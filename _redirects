@@ -1,0 +1,4 @@
+# Redirects pour Cloudflare Pages
+# Toutes les routes non trouvées redirigent vers index.html
+
+/*    /index.html   200
