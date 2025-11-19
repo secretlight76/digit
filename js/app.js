@@ -1112,92 +1112,96 @@ class AudioLab {
             rightSignal.push(right);
         }
 
-        // Normaliser les signaux pour éviter l'overflow
+        // Normaliser les signaux
         const maxAmplitude = Math.max(
             Math.max(...leftSignal.map(Math.abs)),
             Math.max(...rightSignal.map(Math.abs))
         );
-        const normFactor = maxAmplitude > 1 ? 1 / maxAmplitude : 1;
+        const normFactor = maxAmplitude > 0.001 ? 1 / maxAmplitude : 1;
 
-        // Dessiner les 2 canaux avec marges sécurisées
-        const topMargin = 60;
-        const bottomMargin = 100;
-        const betweenMargin = 40;
-        const availableHeight = height - topMargin - bottomMargin;
-        const channelHeight = (availableHeight - betweenMargin) / 2;
-        const channelY1 = topMargin;
-        const channelY2 = topMargin + channelHeight + betweenMargin;
+        // Layout simple et fixe - Canvas 900x500
+        // Canal Gauche: y=30 à y=235 (205px de hauteur)
+        // Canal Droit: y=265 à y=470 (205px de hauteur)
+        const ch1Top = 30;
+        const ch1Bottom = 235;
+        const ch1Center = (ch1Top + ch1Bottom) / 2;
+        const ch1Height = ch1Bottom - ch1Top;
 
-        // Canal Gauche
+        const ch2Top = 265;
+        const ch2Bottom = 470;
+        const ch2Center = (ch2Top + ch2Bottom) / 2;
+        const ch2Height = ch2Bottom - ch2Top;
+
+        const signalAmplitude = 80; // ±80px max autour du centre
+
+        // ===== CANAL GAUCHE =====
         ctx.fillStyle = colors.text;
-        ctx.font = 'bold 16px Arial';
+        ctx.font = 'bold 14px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText('Canal Gauche (L)', 20, channelY1 - 5);
+        ctx.fillText('Canal Gauche (L)', 10, ch1Top - 8);
 
-        // Grille canal gauche
+        // Grille
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 4; i++) {
-            const y = channelY1 + (channelHeight / 4) * i;
+            const y = ch1Top + (ch1Height / 4) * i;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
             ctx.stroke();
         }
 
-        // Ligne centrale gauche
+        // Ligne centrale
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        const leftMidY = channelY1 + channelHeight / 2;
-        ctx.moveTo(0, leftMidY);
-        ctx.lineTo(width, leftMidY);
+        ctx.moveTo(0, ch1Center);
+        ctx.lineTo(width, ch1Center);
         ctx.stroke();
 
-        // Signal gauche avec clipping pour sécurité
+        // Signal gauche
         ctx.strokeStyle = '#58a6ff';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
         for (let i = 0; i < leftSignal.length; i++) {
             const x = (i / leftSignal.length) * width;
-            const y = leftMidY - (leftSignal[i] * normFactor * channelHeight * 0.3);
+            const y = ch1Center - (leftSignal[i] * normFactor * signalAmplitude);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Canal Droit
+        // ===== CANAL DROIT =====
         ctx.fillStyle = colors.text;
-        ctx.font = 'bold 16px Arial';
-        ctx.fillText('Canal Droit (R)', 20, channelY2 - 5);
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText('Canal Droit (R)', 10, ch2Top - 8);
 
-        // Grille canal droit
+        // Grille
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 4; i++) {
-            const y = channelY2 + (channelHeight / 4) * i;
+            const y = ch2Top + (ch2Height / 4) * i;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
             ctx.stroke();
         }
 
-        // Ligne centrale droite
+        // Ligne centrale
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        const rightMidY = channelY2 + channelHeight / 2;
-        ctx.moveTo(0, rightMidY);
-        ctx.lineTo(width, rightMidY);
+        ctx.moveTo(0, ch2Center);
+        ctx.lineTo(width, ch2Center);
         ctx.stroke();
 
-        // Signal droit avec clipping pour sécurité
+        // Signal droit
         ctx.strokeStyle = '#f85149';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
         for (let i = 0; i < rightSignal.length; i++) {
             const x = (i / rightSignal.length) * width;
-            const y = rightMidY - (rightSignal[i] * normFactor * channelHeight * 0.3);
+            const y = ch2Center - (rightSignal[i] * normFactor * signalAmplitude);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
@@ -1225,20 +1229,11 @@ class AudioLab {
         document.getElementById('chan-correlation').textContent = correlation.toFixed(0) + '%';
         document.getElementById('chan-mono-saving').textContent = monoSaving + '%';
 
-        // Afficher les paramètres actifs sur le canvas (dans la zone de marge inférieure)
+        // Paramètres en bas à droite (zone y=475-500)
         ctx.fillStyle = colors.text;
-        ctx.font = '13px Arial';
+        ctx.font = '12px Arial';
         ctx.textAlign = 'right';
-        const infoX = width - 20;
-        let infoY = height - 85;
-
-        ctx.fillText(`Mode: ${state.mode}`, infoX, infoY);
-        infoY += 18;
-        ctx.fillText(`Pan: ${state.pan > 0 ? 'D+' : state.pan < 0 ? 'G+' : 'C'}${Math.abs(state.pan)}`, infoX, infoY);
-        infoY += 18;
-        ctx.fillText(`Largeur: ${state.width}%`, infoX, infoY);
-        infoY += 18;
-        ctx.fillText(`Phase: ${state.phase}°`, infoX, infoY);
+        ctx.fillText(`Mode: ${state.mode} | Pan: ${state.pan} | Largeur: ${state.width}% | Phase: ${state.phase}°`, width - 10, 490);
     }
 
     playStereoTone(state) {
