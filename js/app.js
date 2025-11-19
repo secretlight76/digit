@@ -45,6 +45,7 @@ class AudioLab {
         this.initQuantizationLab();
         this.initAliasingLab();
         this.initCalculators();
+        this.initFormatsComparison();
 
         this.showSection('playground');
     }
@@ -81,6 +82,8 @@ class AudioLab {
             this.drawQuantizationWave(this.quantizationState);
         } else if (this.activeSection === 'aliasing' && this.aliasingState) {
             this.drawAliasingWave(this.aliasingState);
+        } else if (this.activeSection === 'formats' && this.formatsState) {
+            this.drawFormatsComparison(this.formatsState);
         }
     }
 
@@ -966,6 +969,245 @@ class AudioLab {
 
         snrSlider?.addEventListener('input', updateSNR);
         updateSNR();
+    }
+
+    // ===== FORMATS COMPARISON =====
+    initFormatsComparison() {
+        this.formatsState = {
+            duration: 3,
+            sampleRate: 44100,
+            bitDepth: 16,
+            channels: 2,
+            showFormats: {
+                wav: true,
+                flac: true,
+                mp3: true,
+                mp3_128: true,
+                aac: true,
+                opus: true
+            }
+        };
+
+        const canvas = document.getElementById('formats-canvas');
+        if (canvas) {
+            canvas.width = 900;
+            canvas.height = 500;
+        }
+
+        // Duration
+        const durationSlider = document.getElementById('fmt-duration');
+        const durationVal = document.getElementById('fmt-duration-val');
+        if (durationSlider) {
+            durationSlider.addEventListener('input', () => {
+                this.formatsState.duration = parseInt(durationSlider.value);
+                durationVal.textContent = this.formatsState.duration;
+                this.scheduleDraw(() => this.drawFormatsComparison(this.formatsState));
+            });
+        }
+
+        // Quick buttons
+        document.querySelectorAll('.btn-tiny[data-target="fmt-duration"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const val = parseInt(btn.getAttribute('data-value'));
+                durationSlider.value = val;
+                this.formatsState.duration = val;
+                durationVal.textContent = val;
+                this.drawFormatsComparison(this.formatsState);
+            });
+        });
+
+        // Sample Rate
+        const srSelect = document.getElementById('fmt-sr');
+        if (srSelect) {
+            srSelect.addEventListener('change', () => {
+                this.formatsState.sampleRate = parseInt(srSelect.value);
+                this.scheduleDraw(() => this.drawFormatsComparison(this.formatsState));
+            });
+        }
+
+        // Bit Depth
+        const bdSelect = document.getElementById('fmt-bd');
+        if (bdSelect) {
+            bdSelect.addEventListener('change', () => {
+                this.formatsState.bitDepth = parseInt(bdSelect.value);
+                this.scheduleDraw(() => this.drawFormatsComparison(this.formatsState));
+            });
+        }
+
+        // Channels
+        const chSelect = document.getElementById('fmt-ch');
+        if (chSelect) {
+            chSelect.addEventListener('change', () => {
+                this.formatsState.channels = parseInt(chSelect.value);
+                this.scheduleDraw(() => this.drawFormatsComparison(this.formatsState));
+            });
+        }
+
+        // Checkboxes
+        const checkboxes = {
+            'fmt-show-wav': 'wav',
+            'fmt-show-flac': 'flac',
+            'fmt-show-mp3': 'mp3',
+            'fmt-show-mp3-128': 'mp3_128',
+            'fmt-show-aac': 'aac',
+            'fmt-show-opus': 'opus'
+        };
+
+        Object.entries(checkboxes).forEach(([id, key]) => {
+            const checkbox = document.getElementById(id);
+            if (checkbox) {
+                checkbox.addEventListener('change', () => {
+                    this.formatsState.showFormats[key] = checkbox.checked;
+                    this.drawFormatsComparison(this.formatsState);
+                });
+            }
+        });
+
+        this.drawFormatsComparison(this.formatsState);
+    }
+
+    drawFormatsComparison(state) {
+        const canvas = document.getElementById('formats-canvas');
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        const colors = this.getThemeColors();
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Calcul des tailles
+        const baseBitrate = state.sampleRate * state.bitDepth * state.channels;
+        const durationSec = state.duration * 60;
+
+        const formats = [
+            { key: 'wav', name: 'WAV', type: 'Lossless', color: colors.signal, bitrate: baseBitrate },
+            { key: 'flac', name: 'FLAC', type: 'Lossless', color: colors.success, bitrate: baseBitrate * 0.5 },
+            { key: 'mp3', name: 'MP3 320k', type: 'Lossy', color: colors.warning, bitrate: 320000 },
+            { key: 'mp3_128', name: 'MP3 128k', type: 'Lossy', color: colors.quantized, bitrate: 128000 },
+            { key: 'aac', name: 'AAC 256k', type: 'Lossy', color: '#9d4edd', bitrate: 256000 },
+            { key: 'opus', name: 'Opus 128k', type: 'Lossy', color: '#06d6a0', bitrate: 128000 }
+        ];
+
+        // Filtrer les formats visibles
+        const visibleFormats = formats.filter(f => state.showFormats[f.key]);
+
+        if (visibleFormats.length === 0) {
+            ctx.fillStyle = colors.bg;
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = colors.text;
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Sélectionnez au moins un format à comparer', width / 2, height / 2);
+            return;
+        }
+
+        // Calculer les tailles en MB
+        visibleFormats.forEach(f => {
+            f.sizeMB = (f.bitrate * durationSec) / (8 * 1024 * 1024);
+        });
+
+        const maxSize = Math.max(...visibleFormats.map(f => f.sizeMB));
+
+        // Fond
+        ctx.fillStyle = colors.bg;
+        ctx.fillRect(0, 0, width, height);
+
+        // Titre
+        ctx.fillStyle = colors.text;
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Comparaison pour ${state.duration} min - ${this.formatFreq(state.sampleRate)} ${state.bitDepth}bits ${state.channels}ch`, 20, 30);
+
+        // Graphique en barres
+        const barHeight = 50;
+        const barSpacing = 15;
+        const startY = 60;
+        const maxBarWidth = width - 250;
+
+        visibleFormats.forEach((fmt, idx) => {
+            const y = startY + idx * (barHeight + barSpacing);
+            const barWidth = (fmt.sizeMB / maxSize) * maxBarWidth;
+
+            // Barre
+            ctx.fillStyle = fmt.color;
+            ctx.fillRect(20, y, barWidth, barHeight);
+
+            // Nom du format
+            ctx.fillStyle = colors.text;
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(fmt.name, 30, y + 25);
+
+            // Type
+            ctx.font = '12px Arial';
+            ctx.fillText(fmt.type, 30, y + 42);
+
+            // Taille
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'right';
+            const sizeText = fmt.sizeMB.toFixed(1) + ' MB';
+            ctx.fillText(sizeText, barWidth + 10, y + 30);
+
+            // Pourcentage par rapport au WAV
+            const wavSize = formats[0].sizeMB;
+            if (fmt.key !== 'wav' && wavSize > 0) {
+                const savings = ((wavSize - fmt.sizeMB) / wavSize * 100);
+                ctx.fillStyle = colors.success;
+                ctx.font = '14px Arial';
+                ctx.fillText(`-${savings.toFixed(0)}%`, width - 20, y + 30);
+            }
+        });
+
+        // Mettre à jour le tableau
+        this.updateFormatsTable(visibleFormats, formats[0].sizeMB);
+    }
+
+    updateFormatsTable(visibleFormats, wavSize) {
+        const tbody = document.getElementById('fmt-table-body');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        visibleFormats.forEach(fmt => {
+            const row = tbody.insertRow();
+
+            // Format name
+            const cellName = row.insertCell();
+            cellName.textContent = fmt.name;
+            cellName.style.fontWeight = '600';
+
+            // Type
+            const cellType = row.insertCell();
+            cellType.textContent = fmt.type;
+            cellType.className = fmt.type === 'Lossless' ? 'format-type-lossless' : 'format-type-lossy';
+
+            // Size
+            const cellSize = row.insertCell();
+            cellSize.textContent = fmt.sizeMB.toFixed(1) + ' MB';
+            cellSize.className = 'format-size';
+
+            // Savings
+            const cellSavings = row.insertCell();
+            if (fmt.key === 'wav') {
+                cellSavings.textContent = '-';
+            } else {
+                const savings = ((wavSize - fmt.sizeMB) / wavSize * 100);
+                cellSavings.textContent = savings.toFixed(1) + '%';
+                cellSavings.className = 'format-savings';
+            }
+
+            // Quality
+            const cellQuality = row.insertCell();
+            const quality = {
+                'wav': '★★★★★',
+                'flac': '★★★★★',
+                'mp3': '★★★☆☆',
+                'mp3_128': '★★☆☆☆',
+                'aac': '★★★★☆',
+                'opus': '★★★★★'
+            };
+            cellQuality.textContent = quality[fmt.key] || '★★★☆☆';
+        });
     }
 
     // ===== UTILS =====

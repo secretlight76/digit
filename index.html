@@ -489,64 +489,97 @@
             <section id="formats" class="content-section">
                 <h2>💾 Comparateur de Formats</h2>
 
-                <div class="format-grid">
-                    <div class="format-card" data-format="wav">
-                        <h3>WAV</h3>
-                        <div class="format-badge lossless">Lossless</div>
-                        <div class="format-stats">
-                            <div>Taille (3 min) : <strong>30 MB</strong></div>
-                            <div>Compression : <strong>Aucune</strong></div>
-                            <div>Qualité : <strong>★★★★★</strong></div>
+                <div class="lab-grid">
+                    <div class="control-panel">
+                        <h3>Paramètres</h3>
+
+                        <div class="control-group">
+                            <label>Durée : <span id="fmt-duration-val">3</span> min</label>
+                            <input type="range" id="fmt-duration" min="1" max="60" value="3" step="1">
+                            <div class="quick-values">
+                                <button class="btn-tiny" data-target="fmt-duration" data-value="1">1</button>
+                                <button class="btn-tiny" data-target="fmt-duration" data-value="3">3</button>
+                                <button class="btn-tiny" data-target="fmt-duration" data-value="5">5</button>
+                                <button class="btn-tiny" data-target="fmt-duration" data-value="10">10</button>
+                                <button class="btn-tiny" data-target="fmt-duration" data-value="60">60</button>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <label>Sample Rate</label>
+                            <select id="fmt-sr">
+                                <option value="44100" selected>44.1 kHz (CD)</option>
+                                <option value="48000">48 kHz (Pro)</option>
+                                <option value="96000">96 kHz (Hi-Res)</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label>Bit Depth</label>
+                            <select id="fmt-bd">
+                                <option value="16" selected>16 bits (CD)</option>
+                                <option value="24">24 bits (Pro)</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label>Canaux</label>
+                            <select id="fmt-ch">
+                                <option value="1">Mono</option>
+                                <option value="2" selected>Stéréo</option>
+                            </select>
+                        </div>
+
+                        <div class="info-box">
+                            <h4>Formats à comparer</h4>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="fmt-show-wav" checked>
+                                WAV (Lossless)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="fmt-show-flac" checked>
+                                FLAC (Lossless)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="fmt-show-mp3" checked>
+                                MP3 320k (Lossy)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="fmt-show-mp3-128" checked>
+                                MP3 128k (Lossy)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="fmt-show-aac" checked>
+                                AAC 256k (Lossy)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="fmt-show-opus" checked>
+                                Opus 128k (Lossy)
+                            </label>
                         </div>
                     </div>
 
-                    <div class="format-card" data-format="flac">
-                        <h3>FLAC</h3>
-                        <div class="format-badge lossless">Lossless</div>
-                        <div class="format-stats">
-                            <div>Taille (3 min) : <strong>~15 MB</strong></div>
-                            <div>Compression : <strong>~50%</strong></div>
-                            <div>Qualité : <strong>★★★★★</strong></div>
-                        </div>
-                    </div>
+                    <div class="visualization-panel">
+                        <canvas id="formats-canvas" width="900" height="500"></canvas>
 
-                    <div class="format-card" data-format="mp3">
-                        <h3>MP3</h3>
-                        <div class="format-badge lossy">Lossy</div>
-                        <div class="format-stats">
-                            <div>Taille 320k : <strong>7.2 MB</strong></div>
-                            <div>Taille 128k : <strong>2.9 MB</strong></div>
-                            <div>Qualité : <strong>★★★☆☆</strong></div>
-                        </div>
-                    </div>
-
-                    <div class="format-card" data-format="aac">
-                        <h3>AAC</h3>
-                        <div class="format-badge lossy">Lossy</div>
-                        <div class="format-stats">
-                            <div>Taille 256k : <strong>5.8 MB</strong></div>
-                            <div>Meilleur que MP3 : <strong>Oui</strong></div>
-                            <div>Qualité : <strong>★★★★☆</strong></div>
-                        </div>
-                    </div>
-
-                    <div class="format-card" data-format="opus">
-                        <h3>Opus</h3>
-                        <div class="format-badge lossy">Lossy</div>
-                        <div class="format-stats">
-                            <div>Taille 128k : <strong>2.9 MB</strong></div>
-                            <div>Performance : <strong>Excellente</strong></div>
-                            <div>Qualité : <strong>★★★★★</strong></div>
-                        </div>
-                    </div>
-
-                    <div class="format-card" data-format="ogg">
-                        <h3>OGG Vorbis</h3>
-                        <div class="format-badge lossy">Lossy</div>
-                        <div class="format-stats">
-                            <div>Taille 128k : <strong>2.9 MB</strong></div>
-                            <div>Open Source : <strong>Oui</strong></div>
-                            <div>Qualité : <strong>★★★★☆</strong></div>
+                        <div class="format-details">
+                            <h4>Détails des formats</h4>
+                            <div class="format-comparison-table">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Format</th>
+                                            <th>Type</th>
+                                            <th>Taille</th>
+                                            <th>Économie</th>
+                                            <th>Qualité</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="fmt-table-body">
+                                        <!-- Rempli dynamiquement -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
