@@ -1120,7 +1120,7 @@ class AudioLab {
         const normFactor = maxAmplitude > 1 ? 1 / maxAmplitude : 1;
 
         // Dessiner les 2 canaux
-        const channelHeight = (height - 80) / 2;
+        const channelHeight = (height - 120) / 2;
         const channelY1 = 50;
         const channelY2 = channelY1 + channelHeight + 30;
 
@@ -1156,7 +1156,7 @@ class AudioLab {
         ctx.beginPath();
         for (let i = 0; i < leftSignal.length; i++) {
             const x = (i / leftSignal.length) * width;
-            const y = leftMidY - (leftSignal[i] * normFactor * channelHeight * 0.4);
+            const y = leftMidY - (leftSignal[i] * normFactor * channelHeight * 0.35);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
@@ -1193,7 +1193,7 @@ class AudioLab {
         ctx.beginPath();
         for (let i = 0; i < rightSignal.length; i++) {
             const x = (i / rightSignal.length) * width;
-            const y = rightMidY - (rightSignal[i] * normFactor * channelHeight * 0.4);
+            const y = rightMidY - (rightSignal[i] * normFactor * channelHeight * 0.35);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
@@ -1223,17 +1223,17 @@ class AudioLab {
 
         // Afficher les paramètres actifs sur le canvas
         ctx.fillStyle = colors.text;
-        ctx.font = '14px Arial';
+        ctx.font = '13px Arial';
         ctx.textAlign = 'right';
         const infoX = width - 20;
-        let infoY = height - 80;
+        let infoY = height - 70;
 
         ctx.fillText(`Mode: ${state.mode}`, infoX, infoY);
-        infoY += 20;
+        infoY += 18;
         ctx.fillText(`Panoramique: ${state.pan > 0 ? 'D+' : state.pan < 0 ? 'G+' : 'C'}${Math.abs(state.pan)}`, infoX, infoY);
-        infoY += 20;
+        infoY += 18;
         ctx.fillText(`Largeur: ${state.width}%`, infoX, infoY);
-        infoY += 20;
+        infoY += 18;
         ctx.fillText(`Phase: ${state.phase}°`, infoX, infoY);
     }
 
