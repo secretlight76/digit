@@ -1046,7 +1046,62 @@ class AudioLab {
         ctx.lineTo(width, timeHeight / 2);
         ctx.stroke();
 
-        // Générer signal échantillonné (64 échantillons)
+        // Signal temporel : afficher la fréquence d'entrée réelle (toujours 3-4 périodes)
+        const periodsToShow = 3.5;
+        const samplesPerPeriod = 60;
+        const totalTimeSamples = Math.floor(periodsToShow * samplesPerPeriod);
+        const displayedSignal = [];
+
+        for (let i = 0; i < totalTimeSamples; i++) {
+            const phase = (i / samplesPerPeriod) * twoPi;
+            displayedSignal.push(Math.sin(phase));
+        }
+
+        // Dessiner le signal continu
+        ctx.strokeStyle = colors.signal;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < displayedSignal.length; i++) {
+            const x = (i / displayedSignal.length) * width;
+            const y = timeHeight / 2 - (displayedSignal[i] * timeHeight * 0.35);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Calculer combien d'échantillons on aurait sur cette durée
+        const displayDuration = periodsToShow / state.inputFreq; // Durée en secondes
+        const numSamplePoints = Math.floor(displayDuration * state.sampleRate);
+        const maxSamplePoints = Math.min(numSamplePoints, 100); // Limiter à 100 points
+
+        // Dessiner les points d'échantillonnage sur le signal
+        ctx.fillStyle = state.inputFreq > nyquist ? colors.danger : colors.success;
+
+        for (let i = 0; i < maxSamplePoints; i++) {
+            const sampleTime = (i / state.sampleRate) / displayDuration; // Position relative 0-1
+            if (sampleTime > 1) break;
+
+            const signalIdx = Math.floor(sampleTime * displayedSignal.length);
+            if (signalIdx >= displayedSignal.length) continue;
+
+            const x = (signalIdx / displayedSignal.length) * width;
+            const y = timeHeight / 2 - (displayedSignal[signalIdx] * timeHeight * 0.35);
+
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, twoPi);
+            ctx.fill();
+        }
+
+        // Titre
+        const fontSize = Math.max(12, Math.min(14, width * 0.02));
+        ctx.fillStyle = colors.text;
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.fillText(`Signal: ${state.inputFreq} Hz`, 15, 20);
+
+        ctx.restore();
+
+        // Générer signal échantillonné pour la FFT (64 échantillons)
         const numSamples = 64;
         const sampledSignal = [];
         for (let i = 0; i < numSamples; i++) {
@@ -1054,33 +1109,6 @@ class AudioLab {
             const value = Math.sin(twoPi * state.inputFreq * t);
             sampledSignal.push(value);
         }
-
-        // Dessiner signal temporel simplifié (3 périodes visibles)
-        const periodsToShow = 3;
-        const samplesPerPeriod = 50;
-        const totalTimeSamples = periodsToShow * samplesPerPeriod;
-
-        ctx.strokeStyle = colors.signal;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (let i = 0; i < totalTimeSamples; i++) {
-            const phase = (i / samplesPerPeriod) * twoPi;
-            const value = Math.sin(phase);
-            const x = (i / totalTimeSamples) * width;
-            const y = timeHeight / 2 - (value * timeHeight * 0.35);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-
-        // Titre
-        const fontSize = Math.max(12, Math.min(14, width * 0.02));
-        ctx.fillStyle = colors.text;
-        ctx.font = `bold ${fontSize}px Arial`;
-        ctx.textAlign = 'left';
-        ctx.fillText('Signal Temporel', 15, 20);
-
-        ctx.restore();
 
         // === PARTIE 2: SPECTRE FFT ===
         ctx.save();
@@ -1493,19 +1521,19 @@ class AudioLab {
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
-        // Axe horizontal (L)
+        // Axe horizontal (Mid)
         ctx.beginPath();
         ctx.moveTo(gonoX - gonoRadius, gonoY);
         ctx.lineTo(gonoX + gonoRadius, gonoY);
         ctx.stroke();
-        // Axe vertical (R)
+        // Axe vertical (Side)
         ctx.beginPath();
         ctx.moveTo(gonoX, gonoY - gonoRadius);
         ctx.lineTo(gonoX, gonoY + gonoRadius);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Diagonales (mono)
+        // Diagonales (références stéréo)
         ctx.strokeStyle = colors.grid;
         ctx.globalAlpha = 0.3;
         ctx.beginPath();
@@ -1518,7 +1546,7 @@ class AudioLab {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Dessiner le tracé Lissajous (L vs R)
+        // Dessiner le tracé Lissajous (Mid vs Side)
         // Sous-échantillonner pour de meilleures performances
         const gonoSampleStep = Math.max(1, Math.floor(leftSignal.length / 100));
 
@@ -1531,8 +1559,11 @@ class AudioLab {
         for (let i = 0; i < leftSignal.length; i += gonoSampleStep) {
             const L = leftSignal[i] * normFactor;
             const R = rightSignal[i] * normFactor;
-            const x = gonoX + L * gonoRadius;
-            const y = gonoY - R * gonoRadius; // Inverser Y pour affichage correct
+            // Calculer Mid (L+R) et Side (L-R)
+            const Mid = (L + R) / 2;
+            const Side = (L - R) / 2;
+            const x = gonoX + Mid * gonoRadius;
+            const y = gonoY - Side * gonoRadius; // Inverser Y pour affichage correct
 
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
@@ -1544,13 +1575,13 @@ class AudioLab {
         ctx.fillStyle = colors.text;
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillText('Goniomètre', gonoX, 20);
+        ctx.fillText('Goniomètre (M/S)', gonoX, 20);
 
         ctx.font = `${fontSize - 2}px Arial`;
-        ctx.fillText('L', gonoX - gonoRadius - 10, gonoY + 5);
-        ctx.fillText('L', gonoX + gonoRadius + 10, gonoY + 5);
-        ctx.fillText('R', gonoX, gonoY - gonoRadius - 5);
-        ctx.fillText('R', gonoX, gonoY + gonoRadius + 15);
+        ctx.fillText('-M', gonoX - gonoRadius - 12, gonoY + 5);
+        ctx.fillText('+M', gonoX + gonoRadius + 12, gonoY + 5);
+        ctx.fillText('+S', gonoX, gonoY - gonoRadius - 5);
+        ctx.fillText('-S', gonoX, gonoY + gonoRadius + 15);
 
         ctx.restore();
 
