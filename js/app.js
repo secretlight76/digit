@@ -1025,22 +1025,36 @@ class AudioLab {
         const twoPi = 2 * Math.PI;
         const phaseRad = (state.phase / 180) * Math.PI;
 
+        // Adapter le nombre de cycles selon la fréquence pour une meilleure visualisation
+        const cycles = Math.max(2, Math.min(8, state.freq / 200));
+
         for (let i = 0; i < samples; i++) {
-            const t = (i / samples) * 4 * twoPi;
+            const t = (i / samples) * cycles * twoPi;
             let left, right;
 
             if (state.mode === 'mono') {
+                // En mode mono, même signal sur les 2 canaux
                 const mono = Math.sin(t);
                 left = mono;
                 right = mono;
             } else if (state.mode === 'mid-side') {
+                // Mid-Side: largeur stéréo et phase contrôlent la séparation
                 const mid = Math.sin(t);
                 const side = Math.sin(t + phaseRad) * (state.width / 100);
                 left = mid + side;
                 right = mid - side;
             } else {
-                left = Math.sin(t) * leftGain;
+                // Stéréo: pan contrôle la répartition L/R, phase crée du déphasage
+                const baseSignal = Math.sin(t);
+                left = baseSignal * leftGain;
                 right = Math.sin(t + phaseRad) * rightGain;
+
+                // Appliquer la largeur stéréo aussi en mode stéréo
+                const widthFactor = state.width / 100;
+                const mid = (left + right) / 2;
+                const side = (left - right) / 2;
+                left = mid + side * widthFactor;
+                right = mid - side * widthFactor;
             }
 
             leftSignal.push(left);
@@ -1148,6 +1162,21 @@ class AudioLab {
         document.getElementById('chan-right-level').textContent = rightLevel.toFixed(0) + '%';
         document.getElementById('chan-correlation').textContent = correlation.toFixed(0) + '%';
         document.getElementById('chan-mono-saving').textContent = monoSaving + '%';
+
+        // Afficher les paramètres actifs sur le canvas
+        ctx.fillStyle = colors.text;
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'right';
+        const infoX = width - 20;
+        let infoY = height - 80;
+
+        ctx.fillText(`Mode: ${state.mode}`, infoX, infoY);
+        infoY += 20;
+        ctx.fillText(`Panoramique: ${state.pan > 0 ? 'D+' : state.pan < 0 ? 'G+' : 'C'}${Math.abs(state.pan)}`, infoX, infoY);
+        infoY += 20;
+        ctx.fillText(`Largeur: ${state.width}%`, infoX, infoY);
+        infoY += 20;
+        ctx.fillText(`Phase: ${state.phase}°`, infoX, infoY);
     }
 
     playStereoTone(state) {
@@ -1182,9 +1211,9 @@ class AudioLab {
 
     updateChannelExplanation(state) {
         const explanations = {
-            'stereo': 'La stéréo utilise 2 canaux indépendants pour créer une image sonore spatiale. Le panoramique contrôle la répartition du signal entre gauche et droite.',
-            'mono': 'Le mode mono utilise un seul canal. Le même signal est envoyé à gauche et à droite. Économie de 50% sur la taille du fichier.',
-            'mid-side': 'Le codage Mid-Side sépare le signal central (Mid) des informations stéréo (Side). Utilisé en mastering et pour le contrôle de la largeur stéréo.'
+            'stereo': 'La stéréo utilise 2 canaux indépendants. Le panoramique contrôle la position gauche/droite. La largeur contrôle la séparation stéréo. Le déphasage crée des effets spatiaux.',
+            'mono': 'Le mode mono utilise un seul canal identique sur L et R. Économie de 50% sur la taille du fichier. Les paramètres pan/largeur/phase n\'ont pas d\'effet en mono.',
+            'mid-side': 'Le codage Mid-Side sépare le signal central (Mid) des informations stéréo (Side). La largeur contrôle l\'intensité stéréo. Le déphasage modifie la spatialisation. Utilisé en mastering professionnel.'
         };
 
         const explanation = document.getElementById('chan-explanation');
