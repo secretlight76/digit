@@ -18,6 +18,8 @@ class AudioLabApp {
     init() {
         this.initNavigation();
         this.initTheme();
+
+        // Initialiser tous les labs dès le départ pour éviter les canvas noirs
         this.initPlayground();
         this.initSamplingLab();
         this.initQuantizationLab();
@@ -25,7 +27,21 @@ class AudioLabApp {
         this.initCalculators();
         this.initChannelsLab();
 
+        // Forcer un premier rendu de tous les canvas
+        setTimeout(() => {
+            this.refreshAllVisualizers();
+        }, 100);
+
         this.showSection('playground');
+    }
+
+    refreshAllVisualizers() {
+        // Playground
+        if (this.visualizers.playground) {
+            const state = { frequency: 440, sampleRate: 44100, bitDepth: 16 };
+            this.updatePlaygroundViz(state);
+        }
+        // Autres visualiseurs se mettent à jour dans leurs propres init
     }
 
     // ==================== NAVIGATION ====================

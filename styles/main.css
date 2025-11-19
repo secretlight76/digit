@@ -345,10 +345,10 @@ body {
 
 canvas {
     display: block;
-    max-width: 100%;
-    height: auto;
+    width: 100%;
+    min-height: 300px;
     border-radius: 8px;
-    background: var(--canvas-bg);
+    background: var(--bg-card);
 }
 
 /* ==========================================
