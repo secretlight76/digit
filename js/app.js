@@ -44,6 +44,7 @@ class AudioLab {
         this.initSamplingLab();
         this.initQuantizationLab();
         this.initAliasingLab();
+        this.initChannelsLab();
         this.initCalculators();
         this.initFormatsComparison();
 
@@ -82,6 +83,8 @@ class AudioLab {
             this.drawQuantizationWave(this.quantizationState);
         } else if (this.activeSection === 'aliasing' && this.aliasingState) {
             this.drawAliasingWave(this.aliasingState);
+        } else if (this.activeSection === 'channels' && this.channelsState) {
+            this.drawChannelsVisualization(this.channelsState);
         } else if (this.activeSection === 'formats' && this.formatsState) {
             this.drawFormatsComparison(this.formatsState);
         }
@@ -433,8 +436,10 @@ class AudioLab {
             signalPoints.push(Math.sin(twoPi * i * factor));
         }
 
+        // Signal original (semi-transparent pour voir le signal reconstruit par-dessus)
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.5;
         ctx.beginPath();
         const pointsLength = signalPoints.length;
         for (let i = 0; i < pointsLength; i++) {
@@ -444,39 +449,98 @@ class AudioLab {
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
+        ctx.globalAlpha = 1;
 
         // Points échantillonnés (limiter à 50 max)
         const numSamples = Math.min(Math.floor(state.sampleRate * 0.05), 50);
-        const sampleColor = state.signalFreq > nyquist ? colors.danger : colors.sample;
+        const sampleColor = state.signalFreq > nyquist ? colors.danger : colors.success;
 
-        ctx.strokeStyle = sampleColor;
-        ctx.fillStyle = sampleColor;
-        ctx.lineWidth = 2;
-
+        // Collecter les points échantillonnés
+        const samplePoints = [];
         for (let i = 0; i < numSamples; i++) {
             const ratio = i / numSamples;
             const idx = Math.floor(ratio * pointsLength);
             if (idx < pointsLength) {
                 const x = (idx / pointsLength) * width;
-                const y = height / 2 - (signalPoints[idx] * height * 0.4);
-
-                // Ligne verticale
-                ctx.beginPath();
-                ctx.setLineDash([5, 5]);
-                ctx.moveTo(x, height / 2);
-                ctx.lineTo(x, y);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                // Point
-                ctx.beginPath();
-                ctx.arc(x, y, 6, 0, twoPi);
-                ctx.fill();
+                const y = signalPoints[idx];
+                samplePoints.push({ x, y });
             }
         }
 
-        // Infos
+        // NOUVEAU: Dessiner le signal "reconstruit" en reliant les points échantillonnés
+        // C'est ce que l'ordinateur "pense" être le signal
+        if (samplePoints.length > 1) {
+            ctx.strokeStyle = state.signalFreq > nyquist ? colors.danger : colors.success;
+            ctx.lineWidth = 3;
+            ctx.setLineDash([8, 4]);
+            ctx.beginPath();
+            for (let i = 0; i < samplePoints.length; i++) {
+                const x = samplePoints[i].x;
+                const y = height / 2 - (samplePoints[i].y * height * 0.4);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Dessiner les points d'échantillonnage et lignes verticales
+        ctx.strokeStyle = sampleColor;
+        ctx.fillStyle = sampleColor;
+        ctx.lineWidth = 2;
+
+        for (let i = 0; i < samplePoints.length; i++) {
+            const x = samplePoints[i].x;
+            const y = height / 2 - (samplePoints[i].y * height * 0.4);
+
+            // Ligne verticale
+            ctx.beginPath();
+            ctx.setLineDash([5, 5]);
+            ctx.moveTo(x, height / 2);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Point
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, twoPi);
+            ctx.fill();
+        }
+
+        // Légende
         ctx.fillStyle = colors.text;
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'left';
+
+        // Signal original
+        ctx.fillStyle = colors.signal;
+        ctx.fillRect(20, height - 80, 15, 3);
+        ctx.fillStyle = colors.text;
+        ctx.fillText('Signal original', 40, height - 75);
+
+        // Signal reconstruit
+        const reconstructedColor = state.signalFreq > nyquist ? colors.danger : colors.success;
+        ctx.strokeStyle = reconstructedColor;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 4]);
+        ctx.beginPath();
+        ctx.moveTo(20, height - 58);
+        ctx.lineTo(35, height - 58);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = colors.text;
+        ctx.fillText('Signal reconstruit (échantillonné)', 40, height - 55);
+
+        // Points d'échantillonnage
+        ctx.fillStyle = reconstructedColor;
+        ctx.beginPath();
+        ctx.arc(27, height - 38, 5, 0, twoPi);
+        ctx.fill();
+        ctx.fillStyle = colors.text;
+        ctx.fillText('Points d\'échantillonnage', 40, height - 35);
+
+        // Infos en haut
+        ctx.textAlign = 'left';
         ctx.font = 'bold 18px Arial';
         ctx.fillText(`Signal: ${state.signalFreq} Hz`, 20, 40);
         ctx.fillText(`Sample Rate: ${this.formatFreq(state.sampleRate)}`, 20, 70);
@@ -490,14 +554,20 @@ class AudioLab {
         if (state.signalFreq > nyquist) {
             ctx.fillStyle = colors.danger;
             ctx.font = 'bold 24px Arial';
-            ctx.fillText('⚠️ ALIASING DÉTECTÉ !', width - 300, 40);
-            ctx.fillText('Signal trop rapide', width - 250, 70);
+            ctx.textAlign = 'right';
+            ctx.fillText('⚠️ ALIASING !', width - 20, 40);
+            ctx.font = '16px Arial';
+            ctx.fillText('Le signal reconstruit ne correspond', width - 20, 70);
+            ctx.fillText('PAS au signal original !', width - 20, 95);
             status.textContent = '✗ ALIASING';
             status.className = 'status-error';
         } else {
             ctx.fillStyle = colors.success;
             ctx.font = 'bold 24px Arial';
-            ctx.fillText('✓ Échantillonnage correct', width - 350, 40);
+            ctx.textAlign = 'right';
+            ctx.fillText('✓ Échantillonnage correct', width - 20, 40);
+            ctx.font = '16px Arial';
+            ctx.fillText('Le signal reconstruit est fidèle', width - 20, 70);
             status.textContent = '✓ OK';
             status.className = 'status-ok';
         }
@@ -845,6 +915,282 @@ class AudioLab {
         const remainder = inputFreq % nyquist;
 
         return (foldCount % 2 === 0) ? remainder : nyquist - remainder;
+    }
+
+    // ===== CHANNELS LAB =====
+    initChannelsLab() {
+        this.channelsState = {
+            mode: 'stereo',
+            pan: 0,
+            width: 100,
+            freq: 440,
+            phase: 0
+        };
+
+        const canvas = document.getElementById('channels-canvas');
+        if (canvas) {
+            canvas.width = 900;
+            canvas.height = 500;
+        }
+
+        // Mode
+        const modeSelect = document.getElementById('chan-mode');
+        if (modeSelect) {
+            modeSelect.addEventListener('change', () => {
+                this.channelsState.mode = modeSelect.value;
+                this.updateChannelExplanation(this.channelsState);
+                this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+            });
+        }
+
+        // Pan
+        const panSlider = document.getElementById('chan-pan');
+        const panVal = document.getElementById('chan-pan-val');
+        if (panSlider) {
+            panSlider.addEventListener('input', () => {
+                this.channelsState.pan = parseInt(panSlider.value);
+                panVal.textContent = this.channelsState.pan;
+                this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+            });
+        }
+
+        // Width
+        const widthSlider = document.getElementById('chan-width');
+        const widthVal = document.getElementById('chan-width-val');
+        if (widthSlider) {
+            widthSlider.addEventListener('input', () => {
+                this.channelsState.width = parseInt(widthSlider.value);
+                widthVal.textContent = this.channelsState.width;
+                this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+            });
+        }
+
+        // Frequency
+        const freqSlider = document.getElementById('chan-freq');
+        const freqVal = document.getElementById('chan-freq-val');
+        if (freqSlider) {
+            freqSlider.addEventListener('input', () => {
+                this.channelsState.freq = parseInt(freqSlider.value);
+                freqVal.textContent = this.channelsState.freq;
+                this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+            });
+        }
+
+        // Phase
+        const phaseSlider = document.getElementById('chan-phase');
+        const phaseVal = document.getElementById('chan-phase-val');
+        if (phaseSlider) {
+            phaseSlider.addEventListener('input', () => {
+                this.channelsState.phase = parseInt(phaseSlider.value);
+                phaseVal.textContent = this.channelsState.phase;
+                this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+            });
+        }
+
+        // Play/Stop
+        document.getElementById('chan-play')?.addEventListener('click', () => {
+            this.playStereoTone(this.channelsState);
+        });
+
+        document.getElementById('chan-stop')?.addEventListener('click', () => {
+            this.stopAudio();
+        });
+
+        this.updateChannelExplanation(this.channelsState);
+        this.drawChannelsVisualization(this.channelsState);
+    }
+
+    drawChannelsVisualization(state) {
+        const canvas = document.getElementById('channels-canvas');
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        const colors = this.getThemeColors();
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Fond
+        ctx.fillStyle = colors.bg;
+        ctx.fillRect(0, 0, width, height);
+
+        // Calculer les niveaux L/R basés sur le pan (-100 à 100)
+        const panNorm = state.pan / 100; // -1 à 1
+        const leftGain = Math.cos((panNorm + 1) * Math.PI / 4);
+        const rightGain = Math.sin((panNorm + 1) * Math.PI / 4);
+
+        // Générer les signaux
+        const samples = 300;
+        const leftSignal = [];
+        const rightSignal = [];
+        const twoPi = 2 * Math.PI;
+        const phaseRad = (state.phase / 180) * Math.PI;
+
+        for (let i = 0; i < samples; i++) {
+            const t = (i / samples) * 4 * twoPi;
+            let left, right;
+
+            if (state.mode === 'mono') {
+                const mono = Math.sin(t);
+                left = mono;
+                right = mono;
+            } else if (state.mode === 'mid-side') {
+                const mid = Math.sin(t);
+                const side = Math.sin(t + phaseRad) * (state.width / 100);
+                left = mid + side;
+                right = mid - side;
+            } else {
+                left = Math.sin(t) * leftGain;
+                right = Math.sin(t + phaseRad) * rightGain;
+            }
+
+            leftSignal.push(left);
+            rightSignal.push(right);
+        }
+
+        // Dessiner les 2 canaux
+        const channelHeight = (height - 80) / 2;
+        const channelY1 = 50;
+        const channelY2 = channelY1 + channelHeight + 30;
+
+        // Canal Gauche
+        ctx.fillStyle = colors.text;
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('Canal Gauche (L)', 20, channelY1 - 10);
+
+        // Grille canal gauche
+        ctx.strokeStyle = colors.grid;
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+            const y = channelY1 + (channelHeight / 4) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        // Ligne centrale gauche
+        ctx.strokeStyle = colors.text;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const leftMidY = channelY1 + channelHeight / 2;
+        ctx.moveTo(0, leftMidY);
+        ctx.lineTo(width, leftMidY);
+        ctx.stroke();
+
+        // Signal gauche
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i < leftSignal.length; i++) {
+            const x = (i / leftSignal.length) * width;
+            const y = leftMidY - (leftSignal[i] * channelHeight * 0.4);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Canal Droit
+        ctx.fillStyle = colors.text;
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText('Canal Droit (R)', 20, channelY2 - 10);
+
+        // Grille canal droit
+        ctx.strokeStyle = colors.grid;
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+            const y = channelY2 + (channelHeight / 4) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        // Ligne centrale droite
+        ctx.strokeStyle = colors.text;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const rightMidY = channelY2 + channelHeight / 2;
+        ctx.moveTo(0, rightMidY);
+        ctx.lineTo(width, rightMidY);
+        ctx.stroke();
+
+        // Signal droit
+        ctx.strokeStyle = '#f85149';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i < rightSignal.length; i++) {
+            const x = (i / rightSignal.length) * width;
+            const y = rightMidY - (rightSignal[i] * channelHeight * 0.4);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Calculer statistiques
+        const leftPower = leftSignal.reduce((sum, v) => sum + v * v, 0) / leftSignal.length;
+        const rightPower = rightSignal.reduce((sum, v) => sum + v * v, 0) / rightSignal.length;
+        const leftLevel = Math.sqrt(leftPower) * 100;
+        const rightLevel = Math.sqrt(rightPower) * 100;
+
+        // Corrélation
+        let correlation = 0;
+        for (let i = 0; i < samples; i++) {
+            correlation += leftSignal[i] * rightSignal[i];
+        }
+        correlation = (correlation / samples) * 100;
+
+        // Économie mono vs stéréo
+        const monoSaving = 50;
+
+        // Mettre à jour les stats
+        document.getElementById('chan-left-level').textContent = leftLevel.toFixed(0) + '%';
+        document.getElementById('chan-right-level').textContent = rightLevel.toFixed(0) + '%';
+        document.getElementById('chan-correlation').textContent = correlation.toFixed(0) + '%';
+        document.getElementById('chan-mono-saving').textContent = monoSaving + '%';
+    }
+
+    playStereoTone(state) {
+        this.stopAudio();
+        const ctx = this.getAudioContext();
+
+        const osc = ctx.createOscillator();
+        const merger = ctx.createChannelMerger(2);
+        const gainL = ctx.createGain();
+        const gainR = ctx.createGain();
+
+        osc.frequency.value = state.freq;
+
+        // Calculer les gains basés sur le pan
+        const panNorm = state.pan / 100;
+        const leftGain = Math.cos((panNorm + 1) * Math.PI / 4);
+        const rightGain = Math.sin((panNorm + 1) * Math.PI / 4);
+
+        gainL.gain.value = leftGain * 0.3;
+        gainR.gain.value = rightGain * 0.3;
+
+        osc.connect(gainL);
+        osc.connect(gainR);
+        gainL.connect(merger, 0, 0);
+        gainR.connect(merger, 0, 1);
+        merger.connect(ctx.destination);
+
+        osc.start();
+        osc.stop(ctx.currentTime + 2);
+        this.currentSource = osc;
+    }
+
+    updateChannelExplanation(state) {
+        const explanations = {
+            'stereo': 'La stéréo utilise 2 canaux indépendants pour créer une image sonore spatiale. Le panoramique contrôle la répartition du signal entre gauche et droite.',
+            'mono': 'Le mode mono utilise un seul canal. Le même signal est envoyé à gauche et à droite. Économie de 50% sur la taille du fichier.',
+            'mid-side': 'Le codage Mid-Side sépare le signal central (Mid) des informations stéréo (Side). Utilisé en mastering et pour le contrôle de la largeur stéréo.'
+        };
+
+        const explanation = document.getElementById('chan-explanation');
+        if (explanation) {
+            explanation.textContent = explanations[state.mode] || explanations['stereo'];
+        }
     }
 
     playTone(freq, volume, duration) {

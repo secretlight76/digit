@@ -781,6 +781,30 @@ canvas {
 }
 
 /* ==========================================
+   CHANNELS LAB
+   ========================================== */
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stat-item:last-child {
+    border-bottom: none;
+}
+
+.stat-item span {
+    color: var(--text-secondary);
+}
+
+.stat-item strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* ==========================================
    UTILITAIRES
    ========================================== */
 
