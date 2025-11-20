@@ -922,10 +922,12 @@ class AudioLab {
         ctx.globalAlpha = 1;
 
         // Signal quantifié (en escalier, bien visible)
-        const levelsDivisor = levels / 2;
         const quantizedPoints = signalPoints.map(val => {
-            const level = Math.round((val + 1) * levelsDivisor);
-            return (level / levelsDivisor) - 1;
+            // Pour 1 bit : seulement 2 niveaux (-1 ou +1)
+            // Pour 2 bits : 4 niveaux, etc.
+            const normalized = (val + 1) / 2; // Normaliser de [-1,1] à [0,1]
+            const level = Math.round(normalized * (levels - 1)); // Niveau de 0 à (levels-1)
+            return (level / (levels - 1)) * 2 - 1; // Retour à [-1,1]
         });
 
         ctx.strokeStyle = colors.quantized;
@@ -994,7 +996,8 @@ class AudioLab {
     initAliasingLab() {
         this.aliasingState = {
             inputFreq: 5000,
-            sampleRate: 8000
+            sampleRate: 8000,
+            antiAliasingFilter: true
         };
 
         const freqSlider = document.getElementById('alias-input-freq');
@@ -1013,6 +1016,14 @@ class AudioLab {
             srSlider.addEventListener('input', () => {
                 this.aliasingState.sampleRate = parseInt(srSlider.value);
                 srVal.textContent = this.aliasingState.sampleRate;
+                this.scheduleDraw(() => this.drawAliasingWave(this.aliasingState));
+            });
+        }
+
+        const filterCheckbox = document.getElementById('alias-filter');
+        if (filterCheckbox) {
+            filterCheckbox.addEventListener('change', () => {
+                this.aliasingState.antiAliasingFilter = filterCheckbox.checked;
                 this.scheduleDraw(() => this.drawAliasingWave(this.aliasingState));
             });
         }
@@ -1084,8 +1095,19 @@ class AudioLab {
         }
 
         // Dessiner le signal continu
-        ctx.strokeStyle = colors.signal;
+        // Si le filtre anti-aliasing est activé et qu'on est au-dessus de Nyquist,
+        // afficher le signal en pointillés pour montrer qu'il est filtré
+        const isFiltered = state.antiAliasingFilter && state.inputFreq > nyquist;
+
+        ctx.strokeStyle = isFiltered ? colors.warning : colors.signal;
         ctx.lineWidth = 2;
+
+        if (isFiltered) {
+            // Signal filtré : pointillés + opacité réduite
+            ctx.setLineDash([5, 5]);
+            ctx.globalAlpha = 0.4;
+        }
+
         ctx.beginPath();
         for (let i = 0; i < displayedSignal.length; i++) {
             const x = (i / displayedSignal.length) * width;
@@ -1094,6 +1116,11 @@ class AudioLab {
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
+
+        if (isFiltered) {
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+        }
 
         // Calculer combien d'échantillons on aurait sur cette durée
         const displayDuration = periodsToShow / state.inputFreq; // Durée en secondes
@@ -1163,9 +1190,9 @@ class AudioLab {
             return ((freq - minFreqDisplay) / freqRange) * width;
         };
 
-        // 1. Dessiner la fréquence d'entrée (toujours en bleu, toujours au même endroit)
+        // 1. Dessiner la fréquence d'entrée (seulement si le filtre n'est pas actif ou si en-dessous de Nyquist)
         const inputX = freqToX(state.inputFreq);
-        if (inputX !== null) {
+        if (inputX !== null && !isFiltered) {
             ctx.fillStyle = colors.signal;
             ctx.globalAlpha = 0.8;
             ctx.fillRect(inputX - 8, freqTop + freqHeight - peakHeight, 16, peakHeight);
@@ -1180,7 +1207,8 @@ class AudioLab {
         }
 
         // 2. Calculer et dessiner TOUS les alias visibles dans la gamme 20-30000 Hz
-        if (isAliasing) {
+        // SEULEMENT si le filtre anti-aliasing est désactivé
+        if (isAliasing && !state.antiAliasingFilter) {
             const aliases = this.calculateAllAliases(state.inputFreq, state.sampleRate, minFreqDisplay, maxFreqDisplay);
 
             // Trier les alias par distance à la fréquence perçue (les plus importants d'abord)
@@ -1253,6 +1281,16 @@ class AudioLab {
             ctx.font = `${fontSize - 2}px Arial`;
             ctx.textAlign = 'left';
             ctx.fillText(`${aliases.length} alias détectés`, 15, freqTop + 40);
+        }
+
+        // Message si le filtre anti-aliasing est actif et filtre le signal
+        if (isFiltered) {
+            ctx.fillStyle = colors.success;
+            ctx.font = `bold ${fontSize - 1}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.fillText('✓ Filtre Anti-Aliasing ACTIF : signal > Nyquist bloqué', width / 2, freqTop + freqHeight / 2);
+            ctx.font = `${fontSize - 2}px Arial`;
+            ctx.fillText('Désactiver le filtre pour voir les duplications de spectre', width / 2, freqTop + freqHeight / 2 + 20);
         }
 
         // 3. Ligne de Nyquist (si visible dans la gamme)

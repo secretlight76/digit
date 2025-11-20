@@ -216,8 +216,9 @@
 
                         <div class="control-group">
                             <label>Résolution : <span id="quant-bits-val">8</span> bits</label>
-                            <input type="range" id="quant-bits" min="2" max="24" value="8" step="1">
+                            <input type="range" id="quant-bits" min="1" max="24" value="8" step="1">
                             <div class="quick-values">
+                                <button class="btn-tiny" data-target="quant-bits" data-value="1">1-bit</button>
                                 <button class="btn-tiny" data-target="quant-bits" data-value="4">4-bit</button>
                                 <button class="btn-tiny" data-target="quant-bits" data-value="8">8-bit</button>
                                 <button class="btn-tiny" data-target="quant-bits" data-value="16">16-bit</button>
@@ -270,6 +271,14 @@
                         <div class="control-group">
                             <label>Sample Rate : <span id="alias-sr-val">8000</span> Hz</label>
                             <input type="range" id="alias-sample-rate" min="2000" max="48000" value="8000" step="1000">
+                        </div>
+
+                        <div class="control-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="alias-filter" checked>
+                                <span class="checkbox-text">🎚️ Filtre Anti-Aliasing (passe-bas)</span>
+                            </label>
+                            <p class="help-text">Désactiver pour voir les duplications de spectre</p>
                         </div>
 
                         <div class="button-group">
