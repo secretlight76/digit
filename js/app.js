@@ -1183,28 +1183,76 @@ class AudioLab {
         if (isAliasing) {
             const aliases = this.calculateAllAliases(state.inputFreq, state.sampleRate, minFreqDisplay, maxFreqDisplay);
 
-            ctx.fillStyle = colors.danger;
-            ctx.globalAlpha = 0.7;
+            // Trier les alias par distance à la fréquence perçue (les plus importants d'abord)
+            const perceivedFreq = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
+            const sortedAliases = aliases.sort((a, b) => {
+                const distA = Math.abs(a - perceivedFreq);
+                const distB = Math.abs(b - perceivedFreq);
+                return distA - distB;
+            });
 
-            for (const aliasFreq of aliases) {
+            // Dessiner tous les alias avec des hauteurs décroissantes
+            sortedAliases.forEach((aliasFreq, index) => {
                 const aliasX = freqToX(aliasFreq);
-                if (aliasX !== null && Math.abs(aliasX - (inputX || -1000)) > 20) { // Éviter overlap avec signal original
-                    ctx.fillRect(aliasX - 8, freqTop + freqHeight - peakHeight * 0.85, 16, peakHeight * 0.85);
-                }
-            }
-            ctx.globalAlpha = 1;
+                if (aliasX !== null && Math.abs(aliasX - (inputX || -1000)) > 20) {
+                    // Hauteur et opacité décroissantes selon l'importance
+                    const importance = Math.max(0.3, 1 - (index * 0.12));
+                    const barHeight = peakHeight * 0.75 * importance;
 
-            // Labels pour alias principaux
-            ctx.fillStyle = colors.danger;
+                    // Nuances de rouge pour les alias
+                    if (index === 0) {
+                        ctx.fillStyle = colors.danger; // Rouge vif pour l'alias principal
+                    } else if (index === 1) {
+                        ctx.fillStyle = '#ff6b6b'; // Rouge moyen
+                    } else if (index === 2) {
+                        ctx.fillStyle = '#ff8787'; // Rouge clair
+                    } else {
+                        ctx.fillStyle = '#ffa3a3'; // Rouge très clair
+                    }
+
+                    ctx.globalAlpha = 0.8;
+                    ctx.fillRect(aliasX - 7, freqTop + freqHeight - barHeight, 14, barHeight);
+                    ctx.globalAlpha = 1;
+                }
+            });
+
+            // Labels pour les 4 premiers alias les plus importants
             ctx.font = `${fontSize - 2}px Arial`;
             ctx.textAlign = 'center';
 
-            const mainAlias = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
-            const mainAliasX = freqToX(mainAlias);
-            if (mainAliasX !== null) {
-                ctx.fillText(`${mainAlias.toFixed(0)} Hz`, mainAliasX, freqTop + freqHeight - peakHeight * 0.85 - 5);
-                ctx.fillText('(alias)', mainAliasX, freqTop + freqHeight - peakHeight * 0.85 - 18);
+            const maxLabels = Math.min(4, sortedAliases.length);
+            for (let i = 0; i < maxLabels; i++) {
+                const aliasFreq = sortedAliases[i];
+                const aliasX = freqToX(aliasFreq);
+                if (aliasX !== null && Math.abs(aliasX - (inputX || -1000)) > 20) {
+                    const importance = Math.max(0.3, 1 - (i * 0.12));
+                    const barHeight = peakHeight * 0.75 * importance;
+
+                    // Couleur du label selon l'importance
+                    if (i === 0) {
+                        ctx.fillStyle = colors.danger;
+                    } else if (i === 1) {
+                        ctx.fillStyle = '#ff6b6b';
+                    } else if (i === 2) {
+                        ctx.fillStyle = '#ff8787';
+                    } else {
+                        ctx.fillStyle = '#ffa3a3';
+                    }
+
+                    ctx.fillText(`${aliasFreq.toFixed(0)} Hz`, aliasX, freqTop + freqHeight - barHeight - 5);
+                    if (i === 0) {
+                        ctx.fillText('(principal)', aliasX, freqTop + freqHeight - barHeight - 18);
+                    } else {
+                        ctx.fillText(`(alias ${i+1})`, aliasX, freqTop + freqHeight - barHeight - 18);
+                    }
+                }
             }
+
+            // Afficher le nombre total d'alias détectés
+            ctx.fillStyle = colors.text;
+            ctx.font = `${fontSize - 2}px Arial`;
+            ctx.textAlign = 'left';
+            ctx.fillText(`${aliases.length} alias détectés`, 15, freqTop + 40);
         }
 
         // 3. Ligne de Nyquist (si visible dans la gamme)
@@ -1273,28 +1321,54 @@ class AudioLab {
 
     // Calculer tous les alias d'un signal dans une gamme de fréquences donnée
     calculateAllAliases(inputFreq, sampleRate, minFreq, maxFreq) {
-        const aliases = [];
+        const aliasSet = new Set(); // Utiliser Set pour éviter doublons
         const nyquist = sampleRate / 2;
 
-        // Générer les harmoniques de repliement
+        // Si pas d'aliasing, retourner tableau vide
+        if (inputFreq <= nyquist) {
+            return [];
+        }
+
+        // Méthode 1: Repliement autour des multiples du sample rate
         // Un signal à f génère des composantes à |n*sr ± f| où n = 1, 2, 3...
-        for (let n = 1; n <= 10; n++) { // Limiter à 10 harmoniques
+        for (let n = 1; n <= 20; n++) {
             // Repliement par le bas : n*sr - f
             const alias1 = n * sampleRate - inputFreq;
             // Repliement par le haut : n*sr + f
             const alias2 = n * sampleRate + inputFreq;
 
-            // Ramener dans la bande 0-Nyquist et vérifier si visible
+            // Ramener dans la bande 0-Nyquist
             const foldedAlias1 = this.calculateAliasingFreq(alias1, sampleRate);
             const foldedAlias2 = this.calculateAliasingFreq(alias2, sampleRate);
 
-            if (foldedAlias1 >= minFreq && foldedAlias1 <= maxFreq && !aliases.includes(foldedAlias1)) {
-                aliases.push(foldedAlias1);
+            // Ajouter si dans la gamme visible
+            if (foldedAlias1 >= minFreq && foldedAlias1 <= maxFreq) {
+                aliasSet.add(Math.round(foldedAlias1));
             }
-            if (foldedAlias2 >= minFreq && foldedAlias2 <= maxFreq && !aliases.includes(foldedAlias2)) {
-                aliases.push(foldedAlias2);
+            if (foldedAlias2 >= minFreq && foldedAlias2 <= maxFreq) {
+                aliasSet.add(Math.round(foldedAlias2));
             }
         }
+
+        // Méthode 2: Repliement direct - balayer toutes les copies spectrales
+        // Pour une fréquence f > Nyquist, elle apparaît aussi à:
+        // f mod (2*Nyquist) si dans [0, Nyquist]
+        // 2*Nyquist - (f mod (2*Nyquist)) si dans [Nyquist, 2*Nyquist]
+        let currentFreq = inputFreq;
+        for (let i = 0; i < 30; i++) {
+            currentFreq = currentFreq - sampleRate;
+            if (currentFreq < 0) break;
+
+            const folded = this.calculateAliasingFreq(currentFreq, sampleRate);
+            if (folded >= minFreq && folded <= maxFreq) {
+                aliasSet.add(Math.round(folded));
+            }
+        }
+
+        // Convertir Set en Array et filtrer la fréquence d'entrée si elle est dans la gamme
+        const aliases = Array.from(aliasSet).filter(freq =>
+            Math.abs(freq - inputFreq) > 50 // Exclure fréquence originale et très proches
+        );
 
         return aliases;
     }
