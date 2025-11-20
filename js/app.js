@@ -1329,46 +1329,38 @@ class AudioLab {
             return [];
         }
 
-        // Méthode 1: Repliement autour des multiples du sample rate
-        // Un signal à f génère des composantes à |n*sr ± f| où n = 1, 2, 3...
-        for (let n = 1; n <= 20; n++) {
-            // Repliement par le bas : n*sr - f
-            const alias1 = n * sampleRate - inputFreq;
-            // Repliement par le haut : n*sr + f
-            const alias2 = n * sampleRate + inputFreq;
+        // NOUVEAU : Générer tous les repliements dans la gamme visible 20-30kHz
+        // Un signal à f apparaît aussi à : sr - f, 2*sr - f, 2*sr + f, 3*sr - f, 3*sr + f, etc.
 
-            // Ramener dans la bande 0-Nyquist
-            const foldedAlias1 = this.calculateAliasingFreq(alias1, sampleRate);
-            const foldedAlias2 = this.calculateAliasingFreq(alias2, sampleRate);
+        // Parcourir tous les multiples du sample rate dans la gamme étendue
+        const extendedMax = maxFreq + sampleRate;
+        for (let n = 0; n <= Math.ceil(extendedMax / sampleRate); n++) {
+            const baseFreq = n * sampleRate;
 
-            // Ajouter si dans la gamme visible
-            if (foldedAlias1 >= minFreq && foldedAlias1 <= maxFreq) {
-                aliasSet.add(Math.round(foldedAlias1));
+            // Fréquences miroir autour de chaque multiple de sr
+            const freq1 = baseFreq + inputFreq;  // Au-dessus
+            const freq2 = baseFreq - inputFreq;  // En-dessous
+
+            // Vérifier si dans la gamme visible
+            if (freq1 >= minFreq && freq1 <= maxFreq && freq1 !== inputFreq) {
+                aliasSet.add(Math.round(freq1));
             }
-            if (foldedAlias2 >= minFreq && foldedAlias2 <= maxFreq) {
-                aliasSet.add(Math.round(foldedAlias2));
-            }
-        }
-
-        // Méthode 2: Repliement direct - balayer toutes les copies spectrales
-        // Pour une fréquence f > Nyquist, elle apparaît aussi à:
-        // f mod (2*Nyquist) si dans [0, Nyquist]
-        // 2*Nyquist - (f mod (2*Nyquist)) si dans [Nyquist, 2*Nyquist]
-        let currentFreq = inputFreq;
-        for (let i = 0; i < 30; i++) {
-            currentFreq = currentFreq - sampleRate;
-            if (currentFreq < 0) break;
-
-            const folded = this.calculateAliasingFreq(currentFreq, sampleRate);
-            if (folded >= minFreq && folded <= maxFreq) {
-                aliasSet.add(Math.round(folded));
+            if (freq2 >= minFreq && freq2 <= maxFreq && freq2 > 0 && freq2 !== inputFreq) {
+                aliasSet.add(Math.round(freq2));
             }
         }
 
-        // Convertir Set en Array et filtrer la fréquence d'entrée si elle est dans la gamme
-        const aliases = Array.from(aliasSet).filter(freq =>
-            Math.abs(freq - inputFreq) > 50 // Exclure fréquence originale et très proches
-        );
+        // Aussi ajouter les images miroir dans la bande de Nyquist repliée
+        // Pour f > Nyquist, l'alias perçu est aussi présent
+        const perceivedAlias = this.calculateAliasingFreq(inputFreq, sampleRate);
+        if (perceivedAlias >= minFreq && perceivedAlias <= maxFreq && perceivedAlias !== inputFreq) {
+            aliasSet.add(Math.round(perceivedAlias));
+        }
+
+        // Convertir Set en Array et trier
+        const aliases = Array.from(aliasSet);
+
+        console.log(`Fréquence ${inputFreq} Hz, SR ${sampleRate} Hz: ${aliases.length} alias trouvés`, aliases);
 
         return aliases;
     }
