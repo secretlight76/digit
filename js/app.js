@@ -1176,9 +1176,9 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Zoom fixe : 20 Hz à 30000 Hz (indépendant du sample rate)
+        // Zoom fixe : 20 Hz à 48000 Hz (indépendant du sample rate)
         const minFreqDisplay = 20;
-        const maxFreqDisplay = 30000;
+        const maxFreqDisplay = 48000;
         const freqRange = maxFreqDisplay - minFreqDisplay;
 
         const isAliasing = state.inputFreq > nyquist;
@@ -1206,7 +1206,7 @@ class AudioLab {
             ctx.fillText('(entrée)', inputX, freqTop + freqHeight - peakHeight - 18);
         }
 
-        // 2. Calculer et dessiner TOUS les alias visibles dans la gamme 20-30000 Hz
+        // 2. Calculer et dessiner TOUS les alias visibles dans la gamme 20-48000 Hz
         // SEULEMENT si le filtre anti-aliasing est désactivé
         if (isAliasing && !state.antiAliasingFilter) {
             const aliases = this.calculateAllAliases(state.inputFreq, state.sampleRate, minFreqDisplay, maxFreqDisplay);
@@ -1312,21 +1312,52 @@ class AudioLab {
             ctx.fillText(`Nyquist: ${this.formatFreq(nyquist)}`, nyquistX + 5, freqTop + 20);
         }
 
+        // 4. Ligne Fe (Fréquence d'échantillonnage / Sample Rate)
+        const feX = freqToX(state.sampleRate);
+        if (feX !== null) {
+            ctx.strokeStyle = colors.reconstruction; // Violet
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 5]);
+            ctx.beginPath();
+            ctx.moveTo(feX, freqTop);
+            ctx.lineTo(feX, freqTop + freqHeight);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Label Fe
+            ctx.fillStyle = colors.reconstruction;
+            ctx.font = `${fontSize - 2}px Arial`;
+            ctx.textAlign = 'left';
+            ctx.fillText(`Fe: ${this.formatFreq(state.sampleRate)}`, feX + 5, freqTop + 38);
+        }
+
         // Labels axes
         ctx.fillStyle = colors.text;
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'left';
-        ctx.fillText('Spectre Fréquentiel (20 Hz - 30 kHz)', 15, freqTop + 20);
+        ctx.fillText('Spectre Fréquentiel (20 Hz - 48 kHz)', 15, freqTop + 20);
 
-        // Échelle fréquentielle
+        // Échelle fréquentielle - marqueurs en bas
         ctx.font = `${fontSize - 2}px Arial`;
         ctx.fillStyle = colors.text;
         ctx.textAlign = 'center';
-        const freqMarkers = [100, 1000, 5000, 10000, 20000];
+        const freqMarkers = [20, 1000, 5000, 10000, 20000, 30000, 40000, 48000];
         for (const marker of freqMarkers) {
             const markerX = freqToX(marker);
             if (markerX !== null) {
-                ctx.fillText(`${marker >= 1000 ? (marker / 1000) + 'k' : marker}`, markerX, freqTop + freqHeight + 15);
+                // Formater : 20 Hz, 1k, 5k, 10k, 20k, 30k, 40k, 48k
+                const label = marker >= 1000 ? (marker / 1000) + 'k' : marker + ' Hz';
+                ctx.fillText(label, markerX, freqTop + freqHeight + 15);
+
+                // Petites lignes verticales de repère
+                ctx.strokeStyle = colors.grid;
+                ctx.lineWidth = 1;
+                ctx.globalAlpha = 0.3;
+                ctx.beginPath();
+                ctx.moveTo(markerX, freqTop + freqHeight - 5);
+                ctx.lineTo(markerX, freqTop + freqHeight + 5);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
             }
         }
 
@@ -1367,7 +1398,7 @@ class AudioLab {
             return [];
         }
 
-        // NOUVEAU : Générer tous les repliements dans la gamme visible 20-30kHz
+        // NOUVEAU : Générer tous les repliements dans la gamme visible 20-48kHz
         // Un signal à f apparaît aussi à : sr - f, 2*sr - f, 2*sr + f, 3*sr - f, 3*sr + f, etc.
 
         // Parcourir tous les multiples du sample rate dans la gamme étendue
