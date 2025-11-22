@@ -11,12 +11,16 @@
     <!-- Header -->
     <header class="main-header">
         <div class="container">
-            <h1>🎵 Lab Audio Numérique</h1>
-            <p class="subtitle">Expérimentez avec les paramètres de numérisation</p>
-            <button id="theme-toggle" class="theme-toggle" aria-label="Changer le thème">
-                <span class="icon-sun">☀️</span>
-                <span class="icon-moon">🌙</span>
-            </button>
+            <div class="header-content">
+                <div class="header-text">
+                    <h1>🎵 Lab Audio Numérique</h1>
+                    <p class="subtitle">Projet éducatif par Gabriel Fadavi</p>
+                </div>
+                <button id="theme-toggle" class="theme-toggle" aria-label="Changer le thème">
+                    <span class="icon-sun">☀️</span>
+                    <span class="icon-moon">🌙</span>
+                </button>
+            </div>
         </div>
     </header>
 
@@ -114,7 +118,7 @@
 
                     <!-- Visualisation -->
                     <div class="visualization-panel full-width">
-                        <canvas id="playground-canvas" width="1200" height="300"></canvas>
+                        <canvas id="playground-canvas" class="responsive-canvas"></canvas>
                     </div>
 
                     <!-- Statistiques en Temps Réel -->
@@ -197,7 +201,7 @@
                     </div>
 
                     <div class="visualization-panel">
-                        <canvas id="sampling-canvas" width="900" height="500"></canvas>
+                        <canvas id="sampling-canvas" class="responsive-canvas"></canvas>
                     </div>
                 </div>
             </section>
@@ -212,8 +216,9 @@
 
                         <div class="control-group">
                             <label>Résolution : <span id="quant-bits-val">8</span> bits</label>
-                            <input type="range" id="quant-bits" min="2" max="24" value="8" step="1">
+                            <input type="range" id="quant-bits" min="1" max="24" value="8" step="1">
                             <div class="quick-values">
+                                <button class="btn-tiny" data-target="quant-bits" data-value="1">1-bit</button>
                                 <button class="btn-tiny" data-target="quant-bits" data-value="4">4-bit</button>
                                 <button class="btn-tiny" data-target="quant-bits" data-value="8">8-bit</button>
                                 <button class="btn-tiny" data-target="quant-bits" data-value="16">16-bit</button>
@@ -245,7 +250,7 @@
                     </div>
 
                     <div class="visualization-panel">
-                        <canvas id="quantization-canvas" width="900" height="500"></canvas>
+                        <canvas id="quantization-canvas" class="responsive-canvas"></canvas>
                     </div>
                 </div>
             </section>
@@ -268,6 +273,14 @@
                             <input type="range" id="alias-sample-rate" min="2000" max="48000" value="8000" step="1000">
                         </div>
 
+                        <div class="control-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="alias-filter" checked>
+                                <span class="checkbox-text">🎚️ Filtre Anti-Aliasing (passe-bas)</span>
+                            </label>
+                            <p class="help-text">Désactiver pour voir les duplications de spectre</p>
+                        </div>
+
                         <div class="button-group">
                             <button class="btn-primary" id="alias-play">▶ Écouter Aliasing</button>
                             <button class="btn-secondary" id="alias-stop">⏹ Stop</button>
@@ -286,7 +299,7 @@
                     </div>
 
                     <div class="visualization-panel">
-                        <canvas id="aliasing-canvas" width="900" height="500"></canvas>
+                        <canvas id="aliasing-canvas" class="responsive-canvas"></canvas>
                     </div>
                 </div>
             </section>
@@ -511,7 +524,7 @@
                     </div>
 
                     <div class="visualization-panel">
-                        <canvas id="channels-canvas" width="900" height="500"></canvas>
+                        <canvas id="channels-canvas" class="responsive-canvas"></canvas>
 
                         <div class="info-box mt-2">
                             <h4>💡 Explications</h4>
@@ -529,73 +542,78 @@
                 <h2>💾 Comparateur de Formats Audio</h2>
 
                 <div class="formats-container">
-                    <!-- Paramètres -->
-                    <div class="formats-params">
-                        <h3>Configuration Audio</h3>
+                    <!-- Colonne gauche : Configuration -->
+                    <div class="formats-sidebar">
+                        <div class="control-panel">
+                            <h3>Configuration Audio</h3>
 
-                        <div class="control-group">
-                            <label>Durée du fichier : <span id="fmt-duration-val">3</span> min</label>
-                            <input type="range" id="fmt-duration" min="1" max="60" value="3" step="1">
-                            <div class="quick-values">
-                                <button class="btn-tiny" data-target="fmt-duration" data-value="1">1min</button>
-                                <button class="btn-tiny" data-target="fmt-duration" data-value="3">3min</button>
-                                <button class="btn-tiny" data-target="fmt-duration" data-value="5">5min</button>
-                                <button class="btn-tiny" data-target="fmt-duration" data-value="60">1h</button>
+                            <div class="control-group">
+                                <label>Durée du fichier : <span id="fmt-duration-val">3</span> min</label>
+                                <input type="range" id="fmt-duration" min="1" max="60" value="3" step="1">
+                                <div class="quick-values">
+                                    <button class="btn-tiny" data-target="fmt-duration" data-value="1">1min</button>
+                                    <button class="btn-tiny" data-target="fmt-duration" data-value="3">3min</button>
+                                    <button class="btn-tiny" data-target="fmt-duration" data-value="5">5min</button>
+                                    <button class="btn-tiny" data-target="fmt-duration" data-value="60">1h</button>
+                                </div>
+                            </div>
+
+                            <div class="control-group">
+                                <label>Qualité source</label>
+                                <select id="fmt-quality">
+                                    <option value="cd">CD Quality (44.1kHz/16bit)</option>
+                                    <option value="pro" selected>Studio Pro (48kHz/24bit)</option>
+                                    <option value="hires">Hi-Res Audio (96kHz/24bit)</option>
+                                </select>
+                            </div>
+
+                            <div class="control-group">
+                                <label>Type</label>
+                                <select id="fmt-ch">
+                                    <option value="1">Mono</option>
+                                    <option value="2" selected>Stéréo</option>
+                                </select>
+                            </div>
+
+                            <div class="pedagogical-note">
+                                <strong>💡 À savoir :</strong> Le WAV est le format non compressé de référence.
+                                FLAC offre une compression sans perte. Les formats lossy (MP3, AAC, Opus) réduisent
+                                fortement la taille mais avec perte de qualité.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Colonne droite : Visualisations et tableau -->
+                    <div class="formats-main">
+                        <!-- Visualisation comparative -->
+                        <div class="formats-visualization">
+                            <h3>Comparaison des tailles de fichiers</h3>
+                            <div id="formats-bars" class="formats-bars-container">
+                                <!-- Rempli dynamiquement -->
                             </div>
                         </div>
 
-                        <div class="control-group">
-                            <label>Qualité source</label>
-                            <select id="fmt-quality">
-                                <option value="cd">CD Quality (44.1kHz/16bit)</option>
-                                <option value="pro" selected>Studio Pro (48kHz/24bit)</option>
-                                <option value="hires">Hi-Res Audio (96kHz/24bit)</option>
-                            </select>
-                        </div>
-
-                        <div class="control-group">
-                            <label>Type</label>
-                            <select id="fmt-ch">
-                                <option value="1">Mono</option>
-                                <option value="2" selected>Stéréo</option>
-                            </select>
-                        </div>
-
-                        <div class="pedagogical-note">
-                            <strong>💡 À savoir :</strong> Le WAV est le format non compressé de référence.
-                            FLAC offre une compression sans perte. Les formats lossy (MP3, AAC, Opus) réduisent
-                            fortement la taille mais avec perte de qualité.
-                        </div>
-                    </div>
-
-                    <!-- Visualisation comparative -->
-                    <div class="formats-visualization">
-                        <h3>Comparaison des tailles de fichiers</h3>
-                        <div id="formats-bars" class="formats-bars-container">
-                            <!-- Rempli dynamiquement -->
-                        </div>
-                    </div>
-
-                    <!-- Tableau détaillé -->
-                    <div class="formats-table-section">
-                        <h3>Tableau comparatif détaillé</h3>
-                        <div class="format-comparison-table">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Format</th>
-                                        <th>Type</th>
-                                        <th>Bitrate</th>
-                                        <th>Taille fichier</th>
-                                        <th>Compression</th>
-                                        <th>Qualité</th>
-                                        <th>Usage</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="fmt-table-body">
-                                    <!-- Rempli dynamiquement -->
-                                </tbody>
-                            </table>
+                        <!-- Tableau détaillé -->
+                        <div class="formats-table-section">
+                            <h3>Tableau comparatif détaillé</h3>
+                            <div class="format-comparison-table">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Format</th>
+                                            <th>Type</th>
+                                            <th>Bitrate</th>
+                                            <th>Taille</th>
+                                            <th>Compression</th>
+                                            <th>Qualité</th>
+                                            <th>Usage</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="fmt-table-body">
+                                        <!-- Rempli dynamiquement -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
