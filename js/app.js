@@ -134,11 +134,22 @@ class AudioLab {
                     nativeContext = ctx.context;
                 }
 
-                // Debug logging
-                console.log('Searching for native AudioContext...');
-                console.log('ctx.rawContext has createScriptProcessor:', ctx.rawContext && typeof ctx.rawContext.createScriptProcessor === 'function');
-                console.log('ctx._context has createScriptProcessor:', ctx._context && typeof ctx._context.createScriptProcessor === 'function');
-                console.log('ctx._context.context has createScriptProcessor:', ctx._context && ctx._context.context && typeof ctx._context.context.createScriptProcessor === 'function');
+                // Debug logging - explore Tone context structure
+                console.log('Exploring Tone context structure:');
+                console.log('typeof ctx.rawContext:', typeof ctx.rawContext);
+                console.log('typeof ctx._context:', typeof ctx._context);
+
+                // Try to find the native AudioContext by looking for properties
+                if (ctx._context) {
+                    console.log('ctx._context keys:', Object.keys(ctx._context).slice(0, 20));
+                    if (ctx._context._nativeContext) {
+                        console.log('Found ctx._context._nativeContext');
+                        if (typeof ctx._context._nativeContext.createScriptProcessor === 'function') {
+                            nativeContext = ctx._context._nativeContext;
+                        }
+                    }
+                }
+
                 console.log('Native context found:', !!nativeContext);
 
                 if (!nativeContext) {
