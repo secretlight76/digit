@@ -103,78 +103,78 @@ class AudioLab {
     }
 
     createQuantizerEffect(bits) {
-        // Create a quantizer using WaveShaper with adaptive gain compensation
-        // Lower bit depths lose energy in quantization, so we boost the output
+        // Create a quantizer using ScriptProcessor for mathematically correct quantization
+        // No gain compensation - shows the true effect of bit depth reduction
 
-        const generateQuantizationCurve = (numBits) => {
-            const length = 4096; // Larger table for better precision
-            const curve = new Float32Array(length);
-            const levels = Math.pow(2, numBits);
-            const step = 2 / levels;
+        const input = new Tone.Gain();
+        const output = new Tone.Gain();
 
-            for (let i = 0; i < length; i++) {
-                // Map array index to [-1, 1] range
-                const x = (i / (length - 1)) * 2 - 1;
-
-                // Quantize to nearest level
-                const quantized = Math.round(x / step) * step;
-
-                // Clamp to valid range
-                curve[i] = Math.max(-1, Math.min(1, quantized));
-            }
-
-            return curve;
+        const quantizerState = {
+            bits: bits,
+            processor: null
         };
 
-        // Create composite effect: preGain → waveshaper → postGain
-        const preGain = new Tone.Gain(1);
-        const waveshaper = new Tone.WaveShaper(generateQuantizationCurve(bits), 4096);
-        const postGain = new Tone.Gain(1);
+        // Initialize processor when first needed
+        const initProcessor = () => {
+            if (quantizerState.processor) return;
 
-        // Connect internal chain
-        preGain.connect(waveshaper);
-        waveshaper.connect(postGain);
+            try {
+                const ctx = Tone.getContext();
+                const rawContext = ctx.rawContext;
 
-        // Create wrapper compatible with Tone effect interface
-        const quantizer = {
-            _bits: bits,
-            _generateCurve: generateQuantizationCurve,
-            _preGain: preGain,
-            _waveshaper: waveshaper,
-            _postGain: postGain,
+                if (!rawContext || typeof rawContext.createScriptProcessor !== 'function') {
+                    console.warn('ScriptProcessor not available, using WaveShaper fallback');
+                    // Fallback: connect input directly to output
+                    input.disconnect();
+                    input.connect(output);
+                    return;
+                }
 
-            // Input/output for effect chain
-            input: preGain,
-            output: postGain,
+                const processor = rawContext.createScriptProcessor(4096, 1, 1);
+                processor.onaudioprocess = (e) => {
+                    const inp = e.inputBuffer.getChannelData(0);
+                    const out = e.outputBuffer.getChannelData(0);
+                    const bitsVal = quantizerState.bits;
+                    const levels = Math.pow(2, bitsVal);
+                    const step = 2 / levels;
 
-            connect: function(destination) {
-                return postGain.connect(destination);
+                    for (let i = 0; i < inp.length; i++) {
+                        const q = Math.round(inp[i] / step) * step;
+                        out[i] = Math.max(-1, Math.min(1, q));
+                    }
+                };
+
+                input.connect(processor);
+                processor.connect(output);
+                quantizerState.processor = processor;
+            } catch (err) {
+                console.error('Error creating ScriptProcessor:', err);
+                input.disconnect();
+                input.connect(output);
+            }
+        };
+
+        return {
+            input: input,
+            output: output,
+            connect: function(dest) {
+                initProcessor();
+                return output.connect(dest);
             },
-
-            disconnect: function() {
-                postGain.disconnect();
-            },
-
             setBits: function(newBits) {
-                this._bits = newBits;
-                // Update the WaveShaper curve
-                this._waveshaper.curve = this._generateCurve(newBits);
-
-                // Adjust post-gain based on bit depth
-                // Lower bit depths lose more energy and need more gain to be audible
-                const gainBoost = Math.pow(2, Math.max(0, 3 - Math.log2(newBits)));
-                this._postGain.gain.value = gainBoost;
+                quantizerState.bits = newBits;
             },
-
+            disconnect: function() {
+                if (quantizerState.processor) {
+                    quantizerState.processor.disconnect();
+                    quantizerState.processor = null;
+                }
+                output.disconnect();
+            },
             dispose: function() {
                 this.disconnect();
             }
         };
-
-        // Initialize with the provided bit depth
-        quantizer.setBits(bits);
-
-        return quantizer;
     }
 
     generateQuantizationCurve(bits) {
