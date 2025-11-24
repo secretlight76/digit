@@ -95,25 +95,25 @@ class AudioLab {
             envelope: { attack: 0.02, decay: 0.1, sustain: 0.8, release: 0.3 },
             volume: 0
         });
-        // Connect synth to the quantizer (WaveShaper effect)
-        this.synth.connect(this.playgroundEffects.quantizer);
+        // Connect synth to the quantizer's input
+        this.synth.connect(this.playgroundEffects.quantizer.input);
 
         // Store current bits for tracking changes
         this.currentBits = 16;
     }
 
     createQuantizerEffect(bits) {
-        // Create a quantizer using WaveShaper with proper quantization curve
-        // that actually produces audible 1-bit and 2-bit quantization
+        // Create a quantizer using WaveShaper with adaptive gain compensation
+        // Lower bit depths lose energy in quantization, so we boost the output
 
         const generateQuantizationCurve = (numBits) => {
-            const length = 2048; // Use smaller lookup table for better precision
+            const length = 4096; // Larger table for better precision
             const curve = new Float32Array(length);
             const levels = Math.pow(2, numBits);
             const step = 2 / levels;
 
             for (let i = 0; i < length; i++) {
-                // Map array index (0 to length-1) to input range (-1 to 1)
+                // Map array index to [-1, 1] range
                 const x = (i / (length - 1)) * 2 - 1;
 
                 // Quantize to nearest level
@@ -126,20 +126,55 @@ class AudioLab {
             return curve;
         };
 
-        // Create WaveShaper for transfer function quantization
-        const waveshaper = new Tone.WaveShaper(generateQuantizationCurve(bits));
-        waveshaper._bits = bits;
-        waveshaper._generateCurve = generateQuantizationCurve;
+        // Create composite effect: preGain → waveshaper → postGain
+        const preGain = new Tone.Gain(1);
+        const waveshaper = new Tone.WaveShaper(generateQuantizationCurve(bits), 4096);
+        const postGain = new Tone.Gain(1);
 
-        // Add setBits method to update quantization in real-time
-        const originalSetBits = waveshaper.setBits || function() {};
-        waveshaper.setBits = function(newBits) {
-            this._bits = newBits;
-            // Update the curve by setting a new one
-            this.curve = this._generateCurve(newBits);
+        // Connect internal chain
+        preGain.connect(waveshaper);
+        waveshaper.connect(postGain);
+
+        // Create wrapper compatible with Tone effect interface
+        const quantizer = {
+            _bits: bits,
+            _generateCurve: generateQuantizationCurve,
+            _preGain: preGain,
+            _waveshaper: waveshaper,
+            _postGain: postGain,
+
+            // Input/output for effect chain
+            input: preGain,
+            output: postGain,
+
+            connect: function(destination) {
+                return postGain.connect(destination);
+            },
+
+            disconnect: function() {
+                postGain.disconnect();
+            },
+
+            setBits: function(newBits) {
+                this._bits = newBits;
+                // Update the WaveShaper curve
+                this._waveshaper.curve = this._generateCurve(newBits);
+
+                // Adjust post-gain based on bit depth
+                // Lower bit depths lose more energy and need more gain to be audible
+                const gainBoost = Math.pow(2, Math.max(0, 3 - Math.log2(newBits)));
+                this._postGain.gain.value = gainBoost;
+            },
+
+            dispose: function() {
+                this.disconnect();
+            }
         };
 
-        return waveshaper;
+        // Initialize with the provided bit depth
+        quantizer.setBits(bits);
+
+        return quantizer;
     }
 
     generateQuantizationCurve(bits) {
