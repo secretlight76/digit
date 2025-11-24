@@ -120,10 +120,23 @@ class AudioLab {
 
             try {
                 const ctx = Tone.getContext();
-                const rawContext = ctx.rawContext;
+                let rawContext = ctx.rawContext;
+
+                // Try different ways to access the Web Audio API context
+                if (!rawContext) {
+                    if (ctx._context) rawContext = ctx._context;
+                    else if (ctx.context) rawContext = ctx.context;
+                }
+
+                // Debug logging
+                console.log('Tone context type:', typeof ctx);
+                console.log('Raw context available:', !!rawContext, rawContext ? 'Type: ' + typeof rawContext : '');
+                if (rawContext) {
+                    console.log('Has createScriptProcessor:', typeof rawContext.createScriptProcessor);
+                }
 
                 if (!rawContext || typeof rawContext.createScriptProcessor !== 'function') {
-                    console.warn('ScriptProcessor not available, using WaveShaper fallback');
+                    console.warn('ScriptProcessor not available, audio will pass through unquantized');
                     // Fallback: connect input directly to output
                     input.disconnect();
                     input.connect(output);
@@ -147,6 +160,7 @@ class AudioLab {
                 input.connect(processor);
                 processor.connect(output);
                 quantizerState.processor = processor;
+                console.log('✓ ScriptProcessor successfully created and connected');
             } catch (err) {
                 console.error('Error creating ScriptProcessor:', err);
                 input.disconnect();
