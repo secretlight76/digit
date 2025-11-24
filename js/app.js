@@ -174,8 +174,10 @@ class AudioLab {
                     }
                 };
 
-                input.connect(processor);
-                processor.connect(output);
+                // Connect using the underlying Web Audio nodes
+                // Tone.Gain nodes have _gainNode property that is the native GainNode
+                input._gainNode.connect(processor);
+                processor.connect(output._gainNode);
                 quantizerState.processor = processor;
                 console.log('✓ ScriptProcessor successfully created and connected');
             } catch (err) {
