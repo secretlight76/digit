@@ -127,12 +127,20 @@ class AudioLab {
                 if (ctx._context && ctx._context._nativeContext &&
                     typeof ctx._context._nativeContext.createScriptProcessor === 'function') {
                     nativeContext = ctx._context._nativeContext;
+                    console.log('✓ Found native context at ctx._context._nativeContext');
                 } else if (ctx.rawContext && typeof ctx.rawContext.createScriptProcessor === 'function') {
                     // Fallback for other Tone versions
                     nativeContext = ctx.rawContext;
+                    console.log('✓ Found native context at ctx.rawContext');
                 } else if (ctx._context && typeof ctx._context.createScriptProcessor === 'function') {
                     // Fallback if _nativeContext doesn't exist
                     nativeContext = ctx._context;
+                    console.log('✓ Found native context at ctx._context');
+                } else {
+                    console.log('✗ Could not find native context');
+                    console.log('  ctx._context:', !!ctx._context);
+                    console.log('  ctx._context._nativeContext:', !!(ctx._context && ctx._context._nativeContext));
+                    console.log('  ctx.rawContext:', !!ctx.rawContext);
                 }
 
                 if (!nativeContext) {
@@ -144,6 +152,8 @@ class AudioLab {
                 }
 
                 const processor = nativeContext.createScriptProcessor(4096, 1, 1);
+                console.log('✓ ScriptProcessor created');
+
                 processor.onaudioprocess = (e) => {
                     const inp = e.inputBuffer.getChannelData(0);
                     const out = e.outputBuffer.getChannelData(0);
@@ -163,11 +173,19 @@ class AudioLab {
 
                 // Connect using the underlying Web Audio nodes
                 // Tone.Gain nodes have _gainNode property that is the native GainNode
+                console.log('input._gainNode:', !!input._gainNode);
+                console.log('output._gainNode:', !!output._gainNode);
+
                 input._gainNode.connect(processor);
+                console.log('✓ Connected input to processor');
+
                 processor.connect(output._gainNode);
+                console.log('✓ Connected processor to output');
+
                 quantizerState.processor = processor;
+                console.log('✓ ScriptProcessor successfully created and connected');
             } catch (err) {
-                console.warn('ScriptProcessor initialization failed, audio will pass through unquantized:', err.message);
+                console.warn('ScriptProcessor initialization failed, audio will pass through unquantized:', err);
                 // Fallback: connect input directly to output
                 input.disconnect();
                 input.connect(output);
