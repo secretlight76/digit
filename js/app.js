@@ -123,10 +123,22 @@ class AudioLab {
             quantizerState.initialized = true;
 
             try {
-                const audioContext = Tone.getContext().rawContext;
+                // Get the Web Audio API context from Tone
+                const toneContext = Tone.getContext();
+                let audioContext = toneContext.rawContext;
+
+                // If rawContext doesn't exist, try to get the context directly
+                if (!audioContext && toneContext._context) {
+                    audioContext = toneContext._context;
+                }
+
+                // If still no context, try the context property itself
+                if (!audioContext && toneContext.context) {
+                    audioContext = toneContext.context;
+                }
 
                 // Try to create ScriptProcessor for sample-accurate quantization
-                if (typeof audioContext.createScriptProcessor === 'function') {
+                if (audioContext && typeof audioContext.createScriptProcessor === 'function') {
                     const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
                     processor.onaudioprocess = (event) => {
@@ -150,7 +162,7 @@ class AudioLab {
                     quantizerState.processor = processor;
                 } else {
                     // Fallback: just pass through without quantization
-                    console.warn('ScriptProcessor not available, audio will not be quantized');
+                    console.warn('ScriptProcessor not available, audio will not be quantized. Context:', audioContext ? 'found' : 'not found');
                     input.connect(output);
                 }
             } catch (e) {
