@@ -166,11 +166,15 @@ class AudioLab {
                     const out = e.outputBuffer.getChannelData(0);
                     const bitsVal = quantizerState.bits;
                     const levels = Math.pow(2, bitsVal);
-                    const step = 2 / levels;
+                    const step = 2 / (levels - 1);  // Correct quantization step
 
                     for (let i = 0; i < inp.length; i++) {
-                        const q = Math.round(inp[i] / step) * step;
-                        out[i] = Math.max(-1, Math.min(1, q));
+                        // Map sample from [-1, 1] to [0, levels-1] index space
+                        const normalized = (inp[i] + 1) / step;
+                        const levelIndex = Math.round(normalized);
+                        const clampedIndex = Math.max(0, Math.min(levels - 1, levelIndex));
+                        // Map back to [-1, 1] with proper level anchoring
+                        out[i] = -1 + clampedIndex * step;
                     }
                 };
 
