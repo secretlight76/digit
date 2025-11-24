@@ -120,22 +120,28 @@ class AudioLab {
 
             try {
                 const ctx = Tone.getContext();
-                let rawContext = ctx.rawContext;
+                let nativeContext = null;
 
-                // Try different ways to access the Web Audio API context
-                if (!rawContext) {
-                    if (ctx._context) rawContext = ctx._context;
-                    else if (ctx.context) rawContext = ctx.context;
+                // Tone.js wraps the native AudioContext
+                // Try to find the native context through various paths
+                if (ctx.rawContext && typeof ctx.rawContext.createScriptProcessor === 'function') {
+                    nativeContext = ctx.rawContext;
+                } else if (ctx._context && typeof ctx._context.createScriptProcessor === 'function') {
+                    nativeContext = ctx._context;
+                } else if (ctx._context && ctx._context.context && typeof ctx._context.context.createScriptProcessor === 'function') {
+                    nativeContext = ctx._context.context;
+                } else if (ctx.context && typeof ctx.context.createScriptProcessor === 'function') {
+                    nativeContext = ctx.context;
                 }
 
                 // Debug logging
-                console.log('Tone context type:', typeof ctx);
-                console.log('Raw context available:', !!rawContext, rawContext ? 'Type: ' + typeof rawContext : '');
-                if (rawContext) {
-                    console.log('Has createScriptProcessor:', typeof rawContext.createScriptProcessor);
-                }
+                console.log('Searching for native AudioContext...');
+                console.log('ctx.rawContext has createScriptProcessor:', ctx.rawContext && typeof ctx.rawContext.createScriptProcessor === 'function');
+                console.log('ctx._context has createScriptProcessor:', ctx._context && typeof ctx._context.createScriptProcessor === 'function');
+                console.log('ctx._context.context has createScriptProcessor:', ctx._context && ctx._context.context && typeof ctx._context.context.createScriptProcessor === 'function');
+                console.log('Native context found:', !!nativeContext);
 
-                if (!rawContext || typeof rawContext.createScriptProcessor !== 'function') {
+                if (!nativeContext) {
                     console.warn('ScriptProcessor not available, audio will pass through unquantized');
                     // Fallback: connect input directly to output
                     input.disconnect();
@@ -143,7 +149,7 @@ class AudioLab {
                     return;
                 }
 
-                const processor = rawContext.createScriptProcessor(4096, 1, 1);
+                const processor = nativeContext.createScriptProcessor(4096, 1, 1);
                 processor.onaudioprocess = (e) => {
                     const inp = e.inputBuffer.getChannelData(0);
                     const out = e.outputBuffer.getChannelData(0);
