@@ -109,6 +109,13 @@ class AudioLab {
         const input = new Tone.Gain();
         const output = new Tone.Gain();
 
+        // Initialize Tone nodes to ensure _gainNode exists
+        // This forces creation of internal native Web Audio nodes
+        input.toDestination();
+        input.disconnect();
+        output.toDestination();
+        output.disconnect();
+
         const quantizerState = {
             bits: bits,
             processor: null
