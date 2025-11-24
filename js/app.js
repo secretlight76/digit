@@ -1,11 +1,15 @@
 /**
  * Lab Audio - Version Optimisée et Allégée
  */
+import * as Tone from 'tone';
 
 class AudioLab {
     constructor() {
-        this.audioContext = null;
-        this.currentSource = null;
+        this.synth = null;
+        this.panner = null;
+        this.noise = null;
+        this.isPlaying = false;
+        this.playgroundEffects = {}; // To hold effects for the playground
         this.animationFrame = null;
         this.activeSection = 'playground';
         this.pendingDraws = new Set();
@@ -14,6 +18,25 @@ class AudioLab {
 
     init() {
         console.log('AudioLab initialisé');
+
+        // Flag to track if audio has been initialized
+        this.audioInitialized = false;
+
+        // Resume AudioContext on user interaction (required by browser autoplay policy)
+        const resumeAudioContext = () => {
+            if (Tone.context.state === 'suspended') {
+                Tone.context.resume().catch(err => console.log('AudioContext resume failed:', err));
+            }
+            // Initialize audio components after context is ready
+            if (!this.audioInitialized) {
+                this.initializeAudio();
+            }
+            // Remove listener after first interaction
+            document.removeEventListener('click', resumeAudioContext);
+            document.removeEventListener('touchstart', resumeAudioContext);
+        };
+        document.addEventListener('click', resumeAudioContext);
+        document.addEventListener('touchstart', resumeAudioContext);
 
         // Navigation
         document.querySelectorAll('.nav-link').forEach(link => {
@@ -42,7 +65,7 @@ class AudioLab {
         // Initialiser le système de redimensionnement responsive
         this.initResponsiveCanvas();
 
-        // Initialiser les sections
+        // Initialiser les sections (sans audio)
         this.initPlayground();
         this.initSamplingLab();
         this.initQuantizationLab();
@@ -54,6 +77,96 @@ class AudioLab {
         this.showSection('playground');
     }
 
+    initializeAudio() {
+        if (this.audioInitialized) return;
+        this.audioInitialized = true;
+
+        // Initialiser les composants audio du Playground
+        this.masterVolume = new Tone.Volume(0).toDestination();
+        this.playgroundEffects.lowpassFilter = new Tone.Filter(22050, "lowpass").connect(this.masterVolume);
+
+        // Create a real quantizer using a custom Tone.Effect with proper bit depth math
+        this.playgroundEffects.quantizer = this.createQuantizerEffect(16);
+        this.playgroundEffects.quantizer.connect(this.playgroundEffects.lowpassFilter);
+
+        // Le synth connected to quantizer
+        this.synth = new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.02, decay: 0.1, sustain: 0.8, release: 0.3 },
+            volume: 0
+        });
+        // Connect synth to the quantizer's input
+        this.synth.connect(this.playgroundEffects.quantizer.input);
+
+        // Store current bits for tracking changes
+        this.currentBits = 16;
+    }
+
+    createQuantizerEffect(bits) {
+        // Create input and output gains to wrap the ScriptProcessor
+        const input = new Tone.Gain();
+        const output = new Tone.Gain();
+
+        // Create the actual processor node using the deprecated but functional ScriptProcessor
+        const audioContext = Tone.getContext().rawContext;
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        // Store bits on the processor itself
+        processor._bits = bits;
+
+        // Connect the chain: Tone input -> Web Audio processor -> Tone output
+        input._gainNode.connect(processor);
+        // Connect Web Audio node directly to Tone's underlying gain node
+        processor.connect(output._gainNode);
+
+        processor.onaudioprocess = (event) => {
+            const inputData = event.inputBuffer.getChannelData(0);
+            const outputData = event.outputBuffer.getChannelData(0);
+            const bitsValue = processor._bits || 16;
+
+            const levels = Math.pow(2, bitsValue);
+            const step = 2 / (levels - 1);
+
+            for (let i = 0; i < inputData.length; i++) {
+                // Real mathematical quantization
+                const quantized = Math.round(inputData[i] / step) * step;
+                outputData[i] = Math.max(-1, Math.min(1, quantized));
+            }
+        };
+
+        // Wrap in a Tone.Node-compatible object
+        const quantizer = {
+            input: input,
+            output: output,
+            connect: (destination) => output.connect(destination),
+            setBits: (newBits) => {
+                processor._bits = newBits;
+            }
+        };
+
+        return quantizer;
+    }
+
+    generateQuantizationCurve(bits) {
+        const length = 65536;
+        const curve = new Float32Array(length);
+        const levels = Math.pow(2, bits);
+        const step = 2 / (levels - 1);
+
+        for (let i = 0; i < length; i++) {
+            // Map index to [-1, 1] range
+            const x = (i / (length - 1)) * 2 - 1;
+
+            // Quantize to discrete levels
+            const quantized = Math.round(x / step) * step;
+
+            // Clamp to [-1, 1]
+            curve[i] = Math.max(-1, Math.min(1, quantized));
+        }
+
+        return curve;
+    }
+
     // Système de redimensionnement responsive des canvas
     initResponsiveCanvas() {
         // Configuration des ratios pour chaque canvas
@@ -63,7 +176,8 @@ class AudioLab {
         const maxHeight = screenWidth < 480 ? 300 : screenWidth < 768 ? 400 : screenWidth < 1024 ? 500 : 600;
 
         this.canvasConfigs = {
-            'playground-canvas': { ratio: 1200 / 300, minHeight: minHeight * 0.9, maxHeight: maxHeight * 1.1 },
+            'playground-canvas-original': { ratio: 900 / 250, minHeight: minHeight * 0.4, maxHeight: maxHeight * 0.5 },
+            'playground-canvas-processed': { ratio: 900 / 250, minHeight: minHeight * 0.4, maxHeight: maxHeight * 0.5 },
             'sampling-canvas': { ratio: 900 / 500, minHeight: minHeight, maxHeight: maxHeight },
             'quantization-canvas': { ratio: 900 / 500, minHeight: minHeight, maxHeight: maxHeight },
             'aliasing-canvas': { ratio: 900 / 500, minHeight: minHeight, maxHeight: maxHeight },
@@ -85,9 +199,9 @@ class AudioLab {
 
                 // Mettre à jour les configs
                 Object.keys(this.canvasConfigs).forEach(canvasId => {
-                    if (canvasId === 'playground-canvas') {
-                        this.canvasConfigs[canvasId].minHeight = minHeight * 0.9;
-                        this.canvasConfigs[canvasId].maxHeight = maxHeight * 1.1;
+                    if (canvasId.startsWith('playground-canvas')) {
+                        this.canvasConfigs[canvasId].minHeight = minHeight * 0.4;
+                        this.canvasConfigs[canvasId].maxHeight = maxHeight * 0.5;
                     } else {
                         this.canvasConfigs[canvasId].minHeight = minHeight;
                         this.canvasConfigs[canvasId].maxHeight = maxHeight;
@@ -216,7 +330,7 @@ class AudioLab {
         // Redimensionner le canvas de la section active (car il était peut-être caché avant)
         setTimeout(() => {
             const canvasMap = {
-                'playground': 'playground-canvas',
+                'playground': ['playground-canvas-original', 'playground-canvas-processed'],
                 'sampling': 'sampling-canvas',
                 'quantization': 'quantization-canvas',
                 'aliasing': 'aliasing-canvas',
@@ -224,30 +338,40 @@ class AudioLab {
             };
             const canvasId = canvasMap[id];
             if (canvasId) {
-                this.resizeCanvas(canvasId);
+                if (Array.isArray(canvasId)) {
+                    canvasId.forEach(cid => this.resizeCanvas(cid));
+                } else {
+                    this.resizeCanvas(canvasId);
+                }
             }
             this.refreshActiveVisualization();
         }, 50); // Petit délai pour que le CSS display prenne effet
     }
 
     getAudioContext() {
-        if (!this.audioContext) {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        return this.audioContext;
+        return Tone.context;
     }
 
     stopAudio() {
-        if (this.currentSource) {
-            try { this.currentSource.stop(); } catch(e) {}
-            this.currentSource = null;
+        if (!this.isPlaying) return;
+        
+        if (this.activeSection === 'playground' && this.synth) {
+            this.synth.triggerRelease();
+        } else {
+            // Fallback for other labs
+            this.synth?.dispose();
+            this.panner?.dispose();
+            this.noise?.dispose();
+            this.synth = null;
         }
+        this.isPlaying = false;
     }
 
     // OPTIMISATION: Ne redessiner que la section active
     refreshActiveVisualization() {
         if (this.activeSection === 'playground' && this.playgroundState) {
-            this.drawPlaygroundWave(this.playgroundState);
+            this.drawPlaygroundOriginalWave(this.playgroundState);
+            this.drawPlaygroundProcessedWave(this.playgroundState);
         } else if (this.activeSection === 'sampling' && this.samplingState) {
             this.drawSamplingWave(this.samplingState);
         } else if (this.activeSection === 'quantization' && this.quantizationState) {
@@ -262,13 +386,24 @@ class AudioLab {
     }
 
     // OPTIMISATION: Throttling avec requestAnimationFrame
-    scheduleDraw(drawFn) {
-        if (this.pendingDraws.has(drawFn.name)) return;
+    scheduleDraw(key, drawFn) {
+        // Handle case where only drawFn is passed (key is optional)
+        if (typeof key === 'function' && drawFn === undefined) {
+            drawFn = key;
+            key = `draw_${Date.now()}_${Math.random()}`;
+        }
 
-        this.pendingDraws.add(drawFn.name);
+        if (!drawFn || typeof drawFn !== 'function') {
+            console.warn('scheduleDraw called with invalid drawFn:', drawFn);
+            return;
+        }
+
+        if (this.pendingDraws.has(key)) return;
+
+        this.pendingDraws.add(key);
         requestAnimationFrame(() => {
             drawFn.call(this);
-            this.pendingDraws.delete(drawFn.name);
+            this.pendingDraws.delete(key);
         });
     }
 
@@ -319,7 +454,12 @@ class AudioLab {
         if (waveTypeSelect) {
             waveTypeSelect.addEventListener('change', () => {
                 this.playgroundState.waveType = waveTypeSelect.value;
-                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
+                this.scheduleDraw('pgOriginalWave', () => this.drawPlaygroundOriginalWave(this.playgroundState));
+                this.scheduleDraw('pgProcessedWave', () => this.drawPlaygroundProcessedWave(this.playgroundState));
+                // Mettre à jour le type d'onde sur le synth persistant
+                if (this.synth) {
+                    this.synth.oscillator.type = this.playgroundState.waveType;
+                }
             });
         }
 
@@ -331,7 +471,14 @@ class AudioLab {
                 this.playgroundState.freq = parseInt(freqSlider.value);
                 freqVal.textContent = this.playgroundState.freq;
                 this.updatePlaygroundStats(this.playgroundState);
-                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
+                this.scheduleDraw('pgOriginalWave', () => this.drawPlaygroundOriginalWave(this.playgroundState));
+                this.scheduleDraw('pgProcessedWave', () => this.drawPlaygroundProcessedWave(this.playgroundState));
+                if (this.isPlaying) {
+                    // Appliquer l'aliasing en temps réel
+                    const nyquist = this.playgroundState.sr / 2;
+                    const targetFreq = this.playgroundState.freq > nyquist ? this.calculateAliasingFreq(this.playgroundState.freq, this.playgroundState.sr) : this.playgroundState.freq;
+                    this.synth.frequency.rampTo(targetFreq, 0.05);
+                }
             });
         }
 
@@ -341,8 +488,11 @@ class AudioLab {
         if (volSlider) {
             volSlider.addEventListener('input', () => {
                 this.playgroundState.vol = parseInt(volSlider.value);
-                volVal.textContent = this.playgroundState.vol;
-                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
+                this.scheduleDraw('pgOriginalWave', () => this.drawPlaygroundOriginalWave(this.playgroundState));
+                this.scheduleDraw('pgProcessedWave', () => this.drawPlaygroundProcessedWave(this.playgroundState));
+                if (this.isPlaying && this.masterVolume) {
+                    this.masterVolume.volume.rampTo(Tone.gainToDb(this.playgroundState.vol / 100), 0.05);
+                }
             });
         }
 
@@ -354,7 +504,19 @@ class AudioLab {
                 this.playgroundState.sr = parseInt(srSlider.value);
                 srVal.textContent = this.playgroundState.sr;
                 this.updatePlaygroundStats(this.playgroundState);
-                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
+                this.scheduleDraw('pgOriginalWaveSliderSR', () => this.drawPlaygroundOriginalWave(this.playgroundState));
+                this.scheduleDraw(() => this.drawPlaygroundProcessedWave(this.playgroundState));
+
+                // Mettre à jour l'effet audio en temps réel
+                if (this.isPlaying) {
+                    const nyquist = this.playgroundState.sr / 2;
+                    this.playgroundEffects.lowpassFilter.frequency.rampTo(nyquist, 0.05);
+
+                    // Mettre à jour la fréquence du synth si le statut d'aliasing change
+                    const isAliasing = this.playgroundState.freq > nyquist;
+                    const targetFreq = isAliasing ? this.calculateAliasingFreq(this.playgroundState.freq, this.playgroundState.sr) : this.playgroundState.freq;
+                    this.synth.frequency.rampTo(targetFreq, 0.05);
+                }
             });
         }
 
@@ -366,7 +528,17 @@ class AudioLab {
                 this.playgroundState.sr = val;
                 srVal.textContent = val;
                 this.updatePlaygroundStats(this.playgroundState);
-                this.drawPlaygroundWave(this.playgroundState);
+                this.scheduleDraw(() => this.drawPlaygroundOriginalWave(this.playgroundState));
+                this.scheduleDraw(() => this.drawPlaygroundProcessedWave(this.playgroundState));
+                if (this.isPlaying) {
+                    const nyquist = this.playgroundState.sr / 2;
+                    this.playgroundEffects.lowpassFilter.frequency.rampTo(nyquist, 0.05);
+
+                    // Mettre à jour la fréquence du synth si le statut d'aliasing change
+                    const isAliasing = this.playgroundState.freq > nyquist;
+                    const targetFreq = isAliasing ? this.calculateAliasingFreq(this.playgroundState.freq, this.playgroundState.sr) : this.playgroundState.freq;
+                    this.synth.frequency.rampTo(targetFreq, 0.05);
+                }
             });
         });
 
@@ -376,9 +548,13 @@ class AudioLab {
         if (bdSlider) {
             bdSlider.addEventListener('input', () => {
                 this.playgroundState.bits = parseInt(bdSlider.value);
-                bdVal.textContent = this.playgroundState.bits;
-                this.updatePlaygroundStats(this.playgroundState);
-                this.scheduleDraw(() => this.drawPlaygroundWave(this.playgroundState));
+                this.scheduleDraw('pgOriginalWaveSliderBD', () => this.drawPlaygroundOriginalWave(this.playgroundState));
+                this.scheduleDraw('pgProcessedWaveSliderBD', () => this.drawPlaygroundProcessedWave(this.playgroundState));
+
+                if (this.isPlaying && this.playgroundEffects.quantizer) {
+                    // Update bit depth in real time
+                    this.playgroundEffects.quantizer.setBits(this.playgroundState.bits);
+                }
             });
         }
 
@@ -390,7 +566,11 @@ class AudioLab {
                 this.playgroundState.bits = val;
                 bdVal.textContent = val;
                 this.updatePlaygroundStats(this.playgroundState);
-                this.drawPlaygroundWave(this.playgroundState);
+                this.scheduleDraw('pgOriginalWaveQuickBD', () => this.drawPlaygroundOriginalWave(this.playgroundState));
+                this.scheduleDraw('pgProcessedWaveQuickBD', () => this.drawPlaygroundProcessedWave(this.playgroundState));
+                if (this.isPlaying && this.playgroundEffects.quantizer) {
+                    this.playgroundEffects.quantizer.setBits(this.playgroundState.bits);
+                }
             });
         });
 
@@ -400,12 +580,16 @@ class AudioLab {
             channels.addEventListener('change', () => {
                 this.playgroundState.channels = parseInt(channels.value);
                 this.updatePlaygroundStats(this.playgroundState);
+                this.scheduleDraw(() => this.drawPlaygroundOriginalWave(this.playgroundState));
+                this.scheduleDraw(() => this.drawPlaygroundProcessedWave(this.playgroundState));
             });
         }
 
         // Play/Stop
         document.getElementById('pg-play')?.addEventListener('click', () => {
-            this.playTone(this.playgroundState.freq, this.playgroundState.vol / 100 * 0.3, 2);
+            if (!this.isPlaying) {
+                this.playPlaygroundTone(this.playgroundState);
+            }
         });
 
         document.getElementById('pg-stop')?.addEventListener('click', () => {
@@ -413,11 +597,12 @@ class AudioLab {
         });
 
         this.updatePlaygroundStats(this.playgroundState);
-        this.drawPlaygroundWave(this.playgroundState);
+        this.drawPlaygroundOriginalWave(this.playgroundState);
+        this.drawPlaygroundProcessedWave(this.playgroundState);
     }
 
-    drawPlaygroundWave(state) {
-        const canvas = document.getElementById('playground-canvas');
+    drawPlaygroundOriginalWave(state) {
+        const canvas = document.getElementById('playground-canvas-original');
         if (!canvas) return;
 
         const ctx = canvas.getContext('2d');
@@ -499,10 +684,107 @@ class AudioLab {
         }
         ctx.stroke();
 
+        // Texte info
+        ctx.fillStyle = colors.text;
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText(`${state.freq} Hz - ${state.waveType}`, 10, 25);
+    }
+
+    drawPlaygroundProcessedWave(state) {
+        const canvas = document.getElementById('playground-canvas-processed');
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        const colors = this.getThemeColors();
+        const { width, height } = this.getCanvasDimensions(canvas);
+
+        // Fond
+        ctx.fillStyle = colors.bg;
+        ctx.fillRect(0, 0, width, height);
+
+        // Grille simplifiée
+        ctx.strokeStyle = colors.grid;
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 10; i++) {
+            const y = (height / 10) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        // Ligne centrale
+        ctx.strokeStyle = colors.text;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, height / 2);
+        ctx.lineTo(width, height / 2);
+        ctx.stroke();
+
+        // Générateur de forme d'onde - fonction helper
+        const generateWaveform = (type, phase) => {
+            switch (type) {
+                case 'sine':
+                    return Math.sin(phase);
+                case 'square':
+                    return phase % (2 * Math.PI) < Math.PI ? 1 : -1;
+                case 'sawtooth':
+                    return 2 * ((phase / (2 * Math.PI)) % 1) - 1;
+                case 'triangle':
+                    const t = (phase / (2 * Math.PI)) % 1;
+                    return t < 0.5 ? 4 * t - 1 : 3 - 4 * t;
+                default:
+                    return Math.sin(phase);
+            }
+        };
+
+        // Nombre de cycles adaptatif selon la fréquence
+        let cycles;
+        if (state.freq < 200) cycles = 2;
+        else if (state.freq < 500) cycles = 3;
+        else if (state.freq < 1000) cycles = 4;
+        else if (state.freq < 2000) cycles = 6;
+        else if (state.freq < 3000) cycles = 8;
+        else cycles = 10;
+
+        const samples = 400;
+        const points = [];
+        const twoPi = 2 * Math.PI;
+
+        // Générer le signal avec le type d'onde sélectionné
+        for (let i = 0; i < samples; i++) {
+            const phase = (i / samples) * cycles * twoPi;
+            points.push(generateWaveform(state.waveType, phase));
+        }
+
+        // Amplitude basée sur le volume (0-100%)
+        const amplitude = (state.vol / 100) * 0.4;
+
         // Points d'échantillonnage (limiter à 150 max)
         const samplesPerCycle = state.sr / state.freq;
-        const totalSamplePoints = Math.min(Math.floor(cycles * samplesPerCycle), 150);
+        const totalSamplePoints = Math.min(Math.floor(cycles * samplesPerCycle), 150); // Reverted to 150
         const nyquist = state.sr / 2;
+
+        // Collecter les points échantillonnés avec quantification
+        const sampledAndQuantizedPoints = [];
+        const levels = Math.pow(2, state.bits);
+        for (let i = 0; i < totalSamplePoints; i++) {
+            const ratio = i / totalSamplePoints;
+            const idx = Math.floor(ratio * points.length);
+            if (idx < points.length) {
+                let value = points[idx];
+                // Appliquer la quantification
+                const normalized = (value + 1) / 2; // Normaliser de [-1,1] à [0,1]
+                const level = Math.round(normalized * (levels - 1)); // Niveau de 0 à (levels-1)
+                value = (level / (levels - 1)) * 2 - 1; // Retour à [-1,1]
+                sampledAndQuantizedPoints.push({
+                    x: (idx / points.length) * width,
+                    y: height / 2 - (value * height * amplitude),
+                    value: value
+                });
+            }
+        }
+
 
         // Ligne de reconstruction reliant les points échantillonnés
         ctx.strokeStyle = state.freq > nyquist ? colors.danger : colors.reconstruction;
@@ -510,18 +792,12 @@ class AudioLab {
         ctx.setLineDash([5, 3]);
         ctx.beginPath();
         let firstPoint = true;
-        for (let i = 0; i < totalSamplePoints; i++) {
-            const ratio = i / totalSamplePoints;
-            const idx = Math.floor(ratio * pointsLength);
-            if (idx < pointsLength) {
-                const x = (idx / pointsLength) * width;
-                const y = height / 2 - (points[idx] * height * amplitude);
-                if (firstPoint) {
-                    ctx.moveTo(x, y);
-                    firstPoint = false;
-                } else {
-                    ctx.lineTo(x, y);
-                }
+        for (const point of sampledAndQuantizedPoints) {
+            if (firstPoint) {
+                ctx.moveTo(point.x, point.y);
+                firstPoint = false;
+            } else {
+                ctx.lineTo(point.x, point.y);
             }
         }
         ctx.stroke();
@@ -531,23 +807,16 @@ class AudioLab {
         ctx.fillStyle = state.freq > nyquist ? colors.danger : colors.sample;
         const pointRadius = width < 600 ? 3 : 5; // Adapter la taille des points
 
-        for (let i = 0; i < totalSamplePoints; i++) {
-            const ratio = i / totalSamplePoints;
-            const idx = Math.floor(ratio * pointsLength);
-            if (idx < pointsLength) {
-                const x = (idx / pointsLength) * width;
-                const y = height / 2 - (points[idx] * height * amplitude);
-
-                ctx.beginPath();
-                ctx.arc(x, y, pointRadius, 0, twoPi);
-                ctx.fill();
-            }
+        for (const point of sampledAndQuantizedPoints) {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, pointRadius, 0, twoPi);
+            ctx.fill();
         }
 
         // Texte info
         ctx.fillStyle = colors.text;
         ctx.font = 'bold 16px Arial';
-        ctx.fillText(`${state.freq} Hz @ ${this.formatFreq(state.sr)} / ${state.bits} bits`, 10, 25);
+        ctx.fillText(`${this.formatFreq(state.sr)} / ${state.bits} bits`, 10, 25);
 
         // Warning si aliasing
         if (state.freq > nyquist) {
@@ -580,6 +849,36 @@ class AudioLab {
         }
     }
 
+    playPlaygroundTone(state) {
+        if (this.isPlaying) return;
+
+        // Ensure audio is initialized before playing
+        if (!this.audioInitialized) {
+            this.initializeAudio();
+        }
+
+        this.isPlaying = true;
+
+        // Ensure audio context is started by user gesture
+        Tone.start();
+
+        // Mettre à jour tous les paramètres audio avant de démarrer
+        this.synth.oscillator.type = state.waveType;
+        this.playgroundEffects.lowpassFilter.frequency.value = state.sr / 2;
+
+        // Update bit depth quantizer
+        this.playgroundEffects.quantizer.setBits(state.bits);
+
+        this.masterVolume.volume.value = Tone.gainToDb(state.vol / 100);
+
+        // Déterminer la fréquence à jouer (originale ou aliasée)
+        const nyquist = state.sr / 2;
+        const targetFreq = state.freq > nyquist ? this.calculateAliasingFreq(this.playgroundState.freq, this.playgroundState.sr) : this.playgroundState.freq;
+
+        // Trigger the sound
+        this.synth.triggerAttack(targetFreq, Tone.now(), 0.3);
+    }
+
     // ===== SAMPLING LAB =====
     initSamplingLab() {
         this.samplingState = {
@@ -595,6 +894,9 @@ class AudioLab {
                 this.samplingState.signalFreq = parseInt(freqSlider.value);
                 freqVal.textContent = this.samplingState.signalFreq;
                 this.scheduleDraw(() => this.drawSamplingWave(this.samplingState));
+                if (this.isPlaying && this.activeSection === 'sampling') {
+                    this.playSamplingTone(this.samplingState);
+                }
             });
         }
 
@@ -605,6 +907,9 @@ class AudioLab {
                 this.samplingState.sampleRate = parseInt(srSlider.value);
                 srVal.textContent = this.samplingState.sampleRate;
                 this.scheduleDraw(() => this.drawSamplingWave(this.samplingState));
+                if (this.isPlaying && this.activeSection === 'sampling') {
+                    this.playSamplingTone(this.samplingState);
+                }
             });
         }
 
@@ -619,7 +924,9 @@ class AudioLab {
         }
 
         document.getElementById('samp-play')?.addEventListener('click', () => {
-            this.playTone(this.samplingState.signalFreq, 0.3, 2);
+            if (!this.isPlaying) {
+                this.playSamplingTone(this.samplingState);
+            }
         });
 
         document.getElementById('samp-stop')?.addEventListener('click', () => {
@@ -627,6 +934,28 @@ class AudioLab {
         });
 
         this.drawSamplingWave(this.samplingState);
+    }
+
+    playSamplingTone(state) {
+        // Ensure audio is initialized before playing
+        if (!this.audioInitialized) {
+            this.initializeAudio();
+        }
+
+        this.stopAudio(); // Stop any previous sound
+        this.isPlaying = true;
+
+        Tone.start();
+
+        const nyquist = state.sampleRate / 2;
+        let perceivedFreq = state.signalFreq;
+
+        // If aliasing occurs, play the folded-back frequency
+        if (state.signalFreq > nyquist) {
+            perceivedFreq = this.calculateAliasingFreq(state.signalFreq, state.sampleRate);
+        }
+
+        this.playTone(perceivedFreq, 0.3); // Play indefinitely until stopped
     }
 
     drawSamplingWave(state) {
@@ -805,6 +1134,9 @@ class AudioLab {
                 this.quantizationState.bits = parseInt(bitsSlider.value);
                 bitsVal.textContent = this.quantizationState.bits;
                 this.scheduleDraw(() => this.drawQuantizationWave(this.quantizationState));
+                if (this.isPlaying && this.activeSection === 'quantization') {
+                    this.playQuantizationTone(this.quantizationState);
+                }
             });
         }
 
@@ -815,6 +1147,11 @@ class AudioLab {
                 this.quantizationState.bits = val;
                 bitsVal.textContent = val;
                 this.drawQuantizationWave(this.quantizationState);
+                // Add audio update logic for presets - MOVED INSIDE
+                if (this.isPlaying && this.activeSection === 'quantization') {
+                    this.stopAudio();
+                    this.playQuantizationTone(this.quantizationState);
+                }
             });
         });
 
@@ -825,11 +1162,16 @@ class AudioLab {
                 this.quantizationState.freq = parseInt(freqSlider.value);
                 freqVal.textContent = this.quantizationState.freq;
                 this.scheduleDraw(() => this.drawQuantizationWave(this.quantizationState));
+                if (this.synth) {
+                    this.synth.frequency.rampTo(this.quantizationState.freq, 0.05);
+                }
             });
         }
 
         document.getElementById('quant-compare')?.addEventListener('click', () => {
-            this.playTone(this.quantizationState.freq, 0.3, 2);
+            if (!this.isPlaying) {
+                this.playQuantizationTone(this.quantizationState);
+            }
         });
 
         document.getElementById('quant-stop')?.addEventListener('click', () => {
@@ -839,6 +1181,25 @@ class AudioLab {
         this.drawQuantizationWave(this.quantizationState);
     }
 
+    playQuantizationTone(state) {
+        this.stopAudio(); // Stop any previous sound
+        this.isPlaying = true;
+
+        Tone.start();
+
+        this.synth = new Tone.Synth().toDestination();
+        this.synth.triggerAttack(state.freq, Tone.now(), 0.3);
+
+        if (state.bits < 24) {
+            const noiseLevel = 1 / Math.pow(2, state.bits);
+
+            this.noise = new Tone.Noise("white").toDestination();
+            this.noise.volume.value = Tone.gainToDb(noiseLevel * 10);
+            this.noise.start();
+        }
+    }
+
+
     drawQuantizationWave(state) {
         const canvas = document.getElementById('quantization-canvas');
         if (!canvas) return;
@@ -847,13 +1208,11 @@ class AudioLab {
         const colors = this.getThemeColors();
         const { width, height } = this.getCanvasDimensions(canvas);
 
-        // Fond
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
         const levels = Math.pow(2, state.bits);
 
-        // Grille principale simplifiée
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 8; i++) {
@@ -864,7 +1223,6 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Ligne centrale
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -872,21 +1230,17 @@ class AudioLab {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        // Zoomer sur 1-2 périodes pour mieux voir l'effet
         const periodsToShow = 1.5;
         const samplesPerPeriod = 80;
         const totalSamples = Math.floor(periodsToShow * samplesPerPeriod);
         const twoPi = 2 * Math.PI;
 
-        // Générer signal haute résolution
         const signalPoints = [];
         for (let i = 0; i < totalSamples; i++) {
             const phase = (i / samplesPerPeriod) * twoPi;
             signalPoints.push(Math.sin(phase));
         }
 
-        // Dessiner les niveaux de quantification (lignes horizontales)
-        // Afficher seulement pour les faibles résolutions (< 8 bits) où c'est utile
         const amplitude = 0.42;
 
         if (state.bits <= 8) {
@@ -896,7 +1250,7 @@ class AudioLab {
             ctx.globalAlpha = 0.5;
 
             for (let i = 0; i < levels; i++) {
-                const levelValue = (i / (levels - 1)) * 2 - 1; // De -1 à +1
+                const levelValue = (i / (levels - 1)) * 2 - 1;
                 const y = height / 2 - (levelValue * height * amplitude);
                 ctx.beginPath();
                 ctx.moveTo(0, y);
@@ -907,7 +1261,6 @@ class AudioLab {
             ctx.globalAlpha = 1;
         }
 
-        // Signal original (lisse, semi-transparent)
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
         ctx.globalAlpha = 0.4;
@@ -921,13 +1274,10 @@ class AudioLab {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Signal quantifié (en escalier, bien visible)
         const quantizedPoints = signalPoints.map(val => {
-            // Pour 1 bit : seulement 2 niveaux (-1 ou +1)
-            // Pour 2 bits : 4 niveaux, etc.
-            const normalized = (val + 1) / 2; // Normaliser de [-1,1] à [0,1]
-            const level = Math.round(normalized * (levels - 1)); // Niveau de 0 à (levels-1)
-            return (level / (levels - 1)) * 2 - 1; // Retour à [-1,1]
+            const normalized = (val + 1) / 2;
+            const level = Math.round(normalized * (levels - 1));
+            return (level / (levels - 1)) * 2 - 1;
         });
 
         ctx.strokeStyle = colors.quantized;
@@ -941,7 +1291,6 @@ class AudioLab {
         }
         ctx.stroke();
 
-        // Infos et légende
         const snr = 6.02 * state.bits + 1.76;
         const range = 6 * state.bits;
 
@@ -952,11 +1301,9 @@ class AudioLab {
         ctx.fillText(`${state.bits} bits → ${levels} niveaux`, 15, 25);
         ctx.fillText(`SNR: ${snr.toFixed(1)} dB`, 15, 25 + fontSize + 5);
 
-        // Légende
         ctx.font = `${fontSize - 2}px Arial`;
         let legendY = height - 60;
 
-        // Signal original
         ctx.strokeStyle = colors.signal;
         ctx.lineWidth = 2;
         ctx.globalAlpha = 0.4;
@@ -968,7 +1315,6 @@ class AudioLab {
         ctx.fillStyle = colors.text;
         ctx.fillText('Signal original', 55, legendY + 4);
 
-        // Signal quantifié
         legendY += 20;
         ctx.strokeStyle = colors.quantized;
         ctx.lineWidth = 3;
@@ -978,7 +1324,6 @@ class AudioLab {
         ctx.stroke();
         ctx.fillText('Signal quantifié (escalier)', 55, legendY + 4);
 
-        // Warning si très faible résolution
         if (state.bits <= 4) {
             ctx.fillStyle = colors.danger;
             ctx.font = `bold ${fontSize + 2}px Arial`;
@@ -986,7 +1331,6 @@ class AudioLab {
             ctx.fillText('⚠️ Résolution très faible !', width - 15, 30);
         }
 
-        // Mise à jour stats
         document.getElementById('quant-levels').textContent = levels.toLocaleString();
         document.getElementById('quant-snr').textContent = snr.toFixed(2) + ' dB';
         document.getElementById('quant-range').textContent = range.toFixed(0) + ' dB';
@@ -1029,7 +1373,9 @@ class AudioLab {
         }
 
         document.getElementById('alias-play')?.addEventListener('click', () => {
-            this.playTone(this.aliasingState.inputFreq, 0.3, 2);
+            if (!this.isPlaying) {
+                this.playSamplingTone(this.aliasingState);
+            }
         });
 
         document.getElementById('alias-stop')?.addEventListener('click', () => {
@@ -1049,22 +1395,18 @@ class AudioLab {
         const nyquist = state.sampleRate / 2;
         const twoPi = 2 * Math.PI;
 
-        // Fond
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
-        // Diviser le canvas en deux parties
-        const timeHeight = height * 0.5; // 50% pour signal temporel
-        const freqHeight = height * 0.5; // 50% pour spectre FFT
+        const timeHeight = height * 0.5;
+        const freqHeight = height * 0.5;
         const freqTop = timeHeight;
 
-        // === PARTIE 1: SIGNAL TEMPOREL ===
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, 0, width, timeHeight);
         ctx.clip();
 
-        // Grille temporelle
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 5; i++) {
@@ -1075,7 +1417,6 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Ligne centrale
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1083,7 +1424,6 @@ class AudioLab {
         ctx.lineTo(width, timeHeight / 2);
         ctx.stroke();
 
-        // Signal temporel : afficher la fréquence d'entrée réelle (toujours 3-4 périodes)
         const periodsToShow = 3.5;
         const samplesPerPeriod = 60;
         const totalTimeSamples = Math.floor(periodsToShow * samplesPerPeriod);
@@ -1094,16 +1434,13 @@ class AudioLab {
             displayedSignal.push(Math.sin(phase));
         }
 
-        // Dessiner le signal continu
-        // Si le filtre anti-aliasing est activé et qu'on est au-dessus de Nyquist,
-        // afficher le signal en pointillés pour montrer qu'il est filtré
-        const isFiltered = state.antiAliasingFilter && state.inputFreq > nyquist;
+        const isAliasing = state.inputFreq > nyquist;
+        const isFiltered = state.antiAliasingFilter && isAliasing;
 
         ctx.strokeStyle = isFiltered ? colors.warning : colors.signal;
         ctx.lineWidth = 2;
 
         if (isFiltered) {
-            // Signal filtré : pointillés + opacité réduite
             ctx.setLineDash([5, 5]);
             ctx.globalAlpha = 0.4;
         }
@@ -1122,16 +1459,14 @@ class AudioLab {
             ctx.globalAlpha = 1;
         }
 
-        // Calculer combien d'échantillons on aurait sur cette durée
-        const displayDuration = periodsToShow / state.inputFreq; // Durée en secondes
+        const displayDuration = periodsToShow / state.inputFreq;
         const numSamplePoints = Math.floor(displayDuration * state.sampleRate);
-        const maxSamplePoints = Math.min(numSamplePoints, 100); // Limiter à 100 points
+        const maxSamplePoints = Math.min(numSamplePoints, 100);
 
-        // Dessiner les points d'échantillonnage sur le signal
-        ctx.fillStyle = state.inputFreq > nyquist ? colors.danger : colors.success;
+        ctx.fillStyle = isAliasing ? colors.danger : colors.success;
 
         for (let i = 0; i < maxSamplePoints; i++) {
-            const sampleTime = (i / state.sampleRate) / displayDuration; // Position relative 0-1
+            const sampleTime = (i / state.sampleRate) / displayDuration;
             if (sampleTime > 1) break;
 
             const signalIdx = Math.floor(sampleTime * displayedSignal.length);
@@ -1145,7 +1480,6 @@ class AudioLab {
             ctx.fill();
         }
 
-        // Titre
         const fontSize = Math.max(12, Math.min(14, width * 0.02));
         ctx.fillStyle = colors.text;
         ctx.font = `bold ${fontSize}px Arial`;
@@ -1154,10 +1488,8 @@ class AudioLab {
 
         ctx.restore();
 
-        // === PARTIE 2: SPECTRE FFT ===
         ctx.save();
 
-        // Ligne de séparation
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1165,7 +1497,6 @@ class AudioLab {
         ctx.lineTo(width, freqTop);
         ctx.stroke();
 
-        // Grille fréquentielle
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 5; i++) {
@@ -1176,21 +1507,17 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Zoom fixe : 20 Hz à 48000 Hz (indépendant du sample rate)
         const minFreqDisplay = 20;
         const maxFreqDisplay = 48000;
         const freqRange = maxFreqDisplay - minFreqDisplay;
 
-        const isAliasing = state.inputFreq > nyquist;
         const peakHeight = freqHeight * 0.7;
 
-        // Fonction helper pour convertir fréquence en position X
         const freqToX = (freq) => {
             if (freq < minFreqDisplay || freq > maxFreqDisplay) return null;
             return ((freq - minFreqDisplay) / freqRange) * width;
         };
 
-        // 1. Dessiner la fréquence d'entrée (seulement si le filtre n'est pas actif ou si en-dessous de Nyquist)
         const inputX = freqToX(state.inputFreq);
         if (inputX !== null && !isFiltered) {
             ctx.fillStyle = colors.signal;
@@ -1198,7 +1525,6 @@ class AudioLab {
             ctx.fillRect(inputX - 8, freqTop + freqHeight - peakHeight, 16, peakHeight);
             ctx.globalAlpha = 1;
 
-            // Label fréquence d'entrée
             ctx.fillStyle = colors.signal;
             ctx.font = `${fontSize - 1}px Arial`;
             ctx.textAlign = 'center';
@@ -1206,12 +1532,9 @@ class AudioLab {
             ctx.fillText('(entrée)', inputX, freqTop + freqHeight - peakHeight - 18);
         }
 
-        // 2. Calculer et dessiner TOUS les alias visibles dans la gamme 20-48000 Hz
-        // SEULEMENT si le filtre anti-aliasing est désactivé
         if (isAliasing && !state.antiAliasingFilter) {
             const aliases = this.calculateAllAliases(state.inputFreq, state.sampleRate, minFreqDisplay, maxFreqDisplay);
 
-            // Trier les alias par distance à la fréquence perçue (les plus importants d'abord)
             const perceivedFreq = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
             const sortedAliases = aliases.sort((a, b) => {
                 const distA = Math.abs(a - perceivedFreq);
@@ -1219,23 +1542,20 @@ class AudioLab {
                 return distA - distB;
             });
 
-            // Dessiner tous les alias avec des hauteurs décroissantes
             sortedAliases.forEach((aliasFreq, index) => {
                 const aliasX = freqToX(aliasFreq);
                 if (aliasX !== null && Math.abs(aliasX - (inputX || -1000)) > 20) {
-                    // Hauteur et opacité décroissantes selon l'importance
                     const importance = Math.max(0.3, 1 - (index * 0.12));
                     const barHeight = peakHeight * 0.75 * importance;
 
-                    // Nuances de rouge pour les alias
                     if (index === 0) {
-                        ctx.fillStyle = colors.danger; // Rouge vif pour l'alias principal
+                        ctx.fillStyle = colors.danger;
                     } else if (index === 1) {
-                        ctx.fillStyle = '#ff6b6b'; // Rouge moyen
+                        ctx.fillStyle = '#ff6b6b';
                     } else if (index === 2) {
-                        ctx.fillStyle = '#ff8787'; // Rouge clair
+                        ctx.fillStyle = '#ff8787';
                     } else {
-                        ctx.fillStyle = '#ffa3a3'; // Rouge très clair
+                        ctx.fillStyle = '#ffa3a3';
                     }
 
                     ctx.globalAlpha = 0.8;
@@ -1244,7 +1564,6 @@ class AudioLab {
                 }
             });
 
-            // Labels pour les 4 premiers alias les plus importants
             ctx.font = `${fontSize - 2}px Arial`;
             ctx.textAlign = 'center';
 
@@ -1256,7 +1575,6 @@ class AudioLab {
                     const importance = Math.max(0.3, 1 - (i * 0.12));
                     const barHeight = peakHeight * 0.75 * importance;
 
-                    // Couleur du label selon l'importance
                     if (i === 0) {
                         ctx.fillStyle = colors.danger;
                     } else if (i === 1) {
@@ -1276,14 +1594,12 @@ class AudioLab {
                 }
             }
 
-            // Afficher le nombre total d'alias détectés
             ctx.fillStyle = colors.text;
             ctx.font = `${fontSize - 2}px Arial`;
             ctx.textAlign = 'left';
             ctx.fillText(`${aliases.length} alias détectés`, 15, freqTop + 40);
         }
 
-        // Message si le filtre anti-aliasing est actif et filtre le signal
         if (isFiltered) {
             ctx.fillStyle = colors.success;
             ctx.font = `bold ${fontSize - 1}px Arial`;
@@ -1293,7 +1609,6 @@ class AudioLab {
             ctx.fillText('Désactiver le filtre pour voir les duplications de spectre', width / 2, freqTop + freqHeight / 2 + 20);
         }
 
-        // 3. Ligne de Nyquist (si visible dans la gamme)
         const nyquistX = freqToX(nyquist);
         if (nyquistX !== null) {
             ctx.strokeStyle = colors.warning;
@@ -1305,17 +1620,15 @@ class AudioLab {
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Label Nyquist
             ctx.fillStyle = colors.warning;
             ctx.font = `${fontSize - 2}px Arial`;
             ctx.textAlign = 'left';
             ctx.fillText(`Nyquist: ${this.formatFreq(nyquist)}`, nyquistX + 5, freqTop + 20);
         }
 
-        // 4. Ligne Fe (Fréquence d'échantillonnage / Sample Rate)
         const feX = freqToX(state.sampleRate);
         if (feX !== null) {
-            ctx.strokeStyle = colors.reconstruction; // Violet
+            ctx.strokeStyle = colors.reconstruction;
             ctx.lineWidth = 2;
             ctx.setLineDash([10, 5]);
             ctx.beginPath();
@@ -1324,20 +1637,17 @@ class AudioLab {
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Label Fe
             ctx.fillStyle = colors.reconstruction;
             ctx.font = `${fontSize - 2}px Arial`;
             ctx.textAlign = 'left';
             ctx.fillText(`Fe: ${this.formatFreq(state.sampleRate)}`, feX + 5, freqTop + 38);
         }
 
-        // Labels axes
         ctx.fillStyle = colors.text;
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'left';
         ctx.fillText('Spectre Fréquentiel (20 Hz - 48 kHz)', 15, freqTop + 20);
 
-        // Échelle fréquentielle - marqueurs en bas
         ctx.font = `${fontSize - 2}px Arial`;
         ctx.fillStyle = colors.text;
         ctx.textAlign = 'center';
@@ -1345,11 +1655,9 @@ class AudioLab {
         for (const marker of freqMarkers) {
             const markerX = freqToX(marker);
             if (markerX !== null) {
-                // Formater : 20 Hz, 1k, 5k, 10k, 20k, 30k, 40k, 48k
                 const label = marker >= 1000 ? (marker / 1000) + 'k' : marker + ' Hz';
                 ctx.fillText(label, markerX, freqTop + freqHeight + 15);
 
-                // Petites lignes verticales de repère
                 ctx.strokeStyle = colors.grid;
                 ctx.lineWidth = 1;
                 ctx.globalAlpha = 0.3;
@@ -1361,7 +1669,6 @@ class AudioLab {
             }
         }
 
-        // Message d'avertissement
         ctx.textAlign = 'right';
         if (isAliasing) {
             const perceivedFreq = this.calculateAliasingFreq(state.inputFreq, state.sampleRate);
@@ -1390,27 +1697,20 @@ class AudioLab {
 
     // Calculer tous les alias d'un signal dans une gamme de fréquences donnée
     calculateAllAliases(inputFreq, sampleRate, minFreq, maxFreq) {
-        const aliasSet = new Set(); // Utiliser Set pour éviter doublons
+        const aliasSet = new Set();
         const nyquist = sampleRate / 2;
 
-        // Si pas d'aliasing, retourner tableau vide
         if (inputFreq <= nyquist) {
             return [];
         }
 
-        // NOUVEAU : Générer tous les repliements dans la gamme visible 20-48kHz
-        // Un signal à f apparaît aussi à : sr - f, 2*sr - f, 2*sr + f, 3*sr - f, 3*sr + f, etc.
-
-        // Parcourir tous les multiples du sample rate dans la gamme étendue
         const extendedMax = maxFreq + sampleRate;
         for (let n = 0; n <= Math.ceil(extendedMax / sampleRate); n++) {
             const baseFreq = n * sampleRate;
 
-            // Fréquences miroir autour de chaque multiple de sr
-            const freq1 = baseFreq + inputFreq;  // Au-dessus
-            const freq2 = baseFreq - inputFreq;  // En-dessous
+            const freq1 = baseFreq + inputFreq;
+            const freq2 = baseFreq - inputFreq;
 
-            // Vérifier si dans la gamme visible
             if (freq1 >= minFreq && freq1 <= maxFreq && freq1 !== inputFreq) {
                 aliasSet.add(Math.round(freq1));
             }
@@ -1419,14 +1719,11 @@ class AudioLab {
             }
         }
 
-        // Aussi ajouter les images miroir dans la bande de Nyquist repliée
-        // Pour f > Nyquist, l'alias perçu est aussi présent
         const perceivedAlias = this.calculateAliasingFreq(inputFreq, sampleRate);
         if (perceivedAlias >= minFreq && perceivedAlias <= maxFreq && perceivedAlias !== inputFreq) {
             aliasSet.add(Math.round(perceivedAlias));
         }
 
-        // Convertir Set en Array et trier
         const aliases = Array.from(aliasSet);
 
         console.log(`Fréquence ${inputFreq} Hz, SR ${sampleRate} Hz: ${aliases.length} alias trouvés`, aliases);
@@ -1454,17 +1751,18 @@ class AudioLab {
             phase: 0
         };
 
-        // Mode
         const modeSelect = document.getElementById('chan-mode');
         if (modeSelect) {
             modeSelect.addEventListener('change', () => {
                 this.channelsState.mode = modeSelect.value;
                 this.updateChannelExplanation(this.channelsState);
                 this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+                if (this.isPlaying && this.activeSection === 'channels') {
+                    this.playStereoTone(this.channelsState);
+                }
             });
         }
 
-        // Pan
         const panSlider = document.getElementById('chan-pan');
         const panVal = document.getElementById('chan-pan-val');
         if (panSlider) {
@@ -1472,10 +1770,12 @@ class AudioLab {
                 this.channelsState.pan = parseInt(panSlider.value);
                 panVal.textContent = this.channelsState.pan;
                 this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+                if (this.panner) {
+                    this.panner.pan.rampTo(this.channelsState.pan / 100, 0.05);
+                }
             });
         }
 
-        // Width
         const widthSlider = document.getElementById('chan-width');
         const widthVal = document.getElementById('chan-width-val');
         if (widthSlider) {
@@ -1483,10 +1783,12 @@ class AudioLab {
                 this.channelsState.width = parseInt(widthSlider.value);
                 widthVal.textContent = this.channelsState.width;
                 this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+                if (this.isPlaying && this.activeSection === 'channels') {
+                    this.playStereoTone(this.channelsState);
+                }
             });
         }
 
-        // Frequency
         const freqSlider = document.getElementById('chan-freq');
         const freqVal = document.getElementById('chan-freq-val');
         if (freqSlider) {
@@ -1494,10 +1796,12 @@ class AudioLab {
                 this.channelsState.freq = parseInt(freqSlider.value);
                 freqVal.textContent = this.channelsState.freq;
                 this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+                if (this.synth) {
+                    this.synth.frequency.rampTo(this.channelsState.freq, 0.05);
+                }
             });
         }
 
-        // Phase
         const phaseSlider = document.getElementById('chan-phase');
         const phaseVal = document.getElementById('chan-phase-val');
         if (phaseSlider) {
@@ -1505,12 +1809,16 @@ class AudioLab {
                 this.channelsState.phase = parseInt(phaseSlider.value);
                 phaseVal.textContent = this.channelsState.phase;
                 this.scheduleDraw(() => this.drawChannelsVisualization(this.channelsState));
+                if (this.isPlaying && this.activeSection === 'channels') {
+                    this.playStereoTone(this.channelsState);
+                }
             });
         }
 
-        // Play/Stop
         document.getElementById('chan-play')?.addEventListener('click', () => {
-            this.playStereoTone(this.channelsState);
+            if (!this.isPlaying) {
+                this.playStereoTone(this.channelsState);
+            }
         });
 
         document.getElementById('chan-stop')?.addEventListener('click', () => {
@@ -1529,28 +1837,23 @@ class AudioLab {
         const colors = this.getThemeColors();
         const { width, height } = this.getCanvasDimensions(canvas);
 
-        // Fond
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, 0, width, height);
 
-        // Diviser le canvas en deux parties
-        const waveformWidth = width * 0.58;  // 58% pour formes d'ondes
-        const goniometerWidth = width * 0.42;  // 42% pour goniomètre
+        const waveformWidth = width * 0.58;
+        const goniometerWidth = width * 0.42;
         const goniometerLeft = waveformWidth;
 
-        // Calculer les niveaux L/R basés sur le pan (-100 à 100)
-        const panNorm = state.pan / 100; // -1 à 1
+        const panNorm = state.pan / 100;
         const leftGain = Math.cos((panNorm + 1) * Math.PI / 4);
         const rightGain = Math.sin((panNorm + 1) * Math.PI / 4);
 
-        // Générer les signaux
         const samples = 300;
         const leftSignal = [];
         const rightSignal = [];
         const twoPi = 2 * Math.PI;
         const phaseRad = (state.phase / 180) * Math.PI;
 
-        // Adapter le nombre de cycles selon la fréquence pour une meilleure visualisation
         const cycles = Math.max(2, Math.min(8, state.freq / 200));
 
         for (let i = 0; i < samples; i++) {
@@ -1558,23 +1861,19 @@ class AudioLab {
             let left, right;
 
             if (state.mode === 'mono') {
-                // En mode mono, même signal sur les 2 canaux
                 const mono = Math.sin(t);
                 left = mono;
                 right = mono;
             } else if (state.mode === 'mid-side') {
-                // Mid-Side: largeur stéréo et phase contrôlent la séparation
                 const mid = Math.sin(t);
                 const side = Math.sin(t + phaseRad) * (state.width / 100);
                 left = mid + side;
                 right = mid - side;
             } else {
-                // Stéréo: pan contrôle la répartition L/R, phase crée du déphasage
                 const baseSignal = Math.sin(t);
                 left = baseSignal * leftGain;
                 right = Math.sin(t + phaseRad) * rightGain;
 
-                // Appliquer la largeur stéréo aussi en mode stéréo
                 const widthFactor = state.width / 100;
                 const mid = (left + right) / 2;
                 const side = (left - right) / 2;
@@ -1586,52 +1885,42 @@ class AudioLab {
             rightSignal.push(right);
         }
 
-        // Normaliser les signaux
         const maxAmplitude = Math.max(
             Math.max(...leftSignal.map(Math.abs)),
             Math.max(...rightSignal.map(Math.abs))
         );
         const normFactor = maxAmplitude > 0.001 ? 1 / maxAmplitude : 1;
 
-        // Layout responsive - Calculs proportionnels basés sur la hauteur du canvas
-        // Marges et espacements en pourcentages
-        const topMargin = height * 0.06;       // 6% du haut pour marge
-        const channelGap = height * 0.06;      // 6% d'écart entre les canaux
-        const bottomMargin = height * 0.06;    // 6% du bas pour marge
+        const topMargin = height * 0.06;
+        const channelGap = height * 0.06;
+        const bottomMargin = height * 0.06;
 
-        // Hauteur disponible pour les deux canaux
         const availableHeight = height - topMargin - bottomMargin - channelGap;
         const channelHeight = availableHeight / 2;
 
-        // Canal Gauche (haut)
         const ch1Top = topMargin;
         const ch1Bottom = ch1Top + channelHeight;
         const ch1Center = (ch1Top + ch1Bottom) / 2;
         const ch1Height = channelHeight;
 
-        // Canal Droit (bas)
         const ch2Top = ch1Bottom + channelGap;
         const ch2Bottom = ch2Top + channelHeight;
         const ch2Center = (ch2Top + ch2Bottom) / 2;
         const ch2Height = channelHeight;
 
-        // Amplitude du signal : 35% de la hauteur du canal (avec marge de sécurité)
         const signalAmplitude = channelHeight * 0.35;
 
-        // === PARTIE 1: FORMES D'ONDES (GAUCHE) ===
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, 0, waveformWidth, height);
         ctx.clip();
 
-        // ===== CANAL GAUCHE =====
         ctx.fillStyle = colors.text;
         const fontSize = Math.max(12, Math.min(14, height * 0.025));
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'left';
         ctx.fillText('Canal Gauche (L)', waveformWidth * 0.02, ch1Top - fontSize * 0.5);
 
-        // Grille
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 4; i++) {
@@ -1642,7 +1931,6 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Ligne centrale
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1650,7 +1938,6 @@ class AudioLab {
         ctx.lineTo(waveformWidth, ch1Center);
         ctx.stroke();
 
-        // Signal gauche
         ctx.strokeStyle = '#58a6ff';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1662,12 +1949,10 @@ class AudioLab {
         }
         ctx.stroke();
 
-        // ===== CANAL DROIT =====
         ctx.fillStyle = colors.text;
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.fillText('Canal Droit (R)', waveformWidth * 0.02, ch2Top - fontSize * 0.5);
 
-        // Grille
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
         for (let i = 0; i <= 4; i++) {
@@ -1678,7 +1963,6 @@ class AudioLab {
             ctx.stroke();
         }
 
-        // Ligne centrale
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1686,7 +1970,6 @@ class AudioLab {
         ctx.lineTo(waveformWidth, ch2Center);
         ctx.stroke();
 
-        // Signal droit
         ctx.strokeStyle = '#f85149';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1700,10 +1983,8 @@ class AudioLab {
 
         ctx.restore();
 
-        // === PARTIE 2: GONIOMÈTRE (DROITE) ===
         ctx.save();
 
-        // Ligne de séparation verticale
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1711,39 +1992,32 @@ class AudioLab {
         ctx.lineTo(goniometerLeft, height);
         ctx.stroke();
 
-        // Centre du goniomètre
         const gonoX = goniometerLeft + goniometerWidth / 2;
         const gonoY = height / 2;
         const gonoRadius = Math.min(goniometerWidth, height) * 0.4;
 
-        // Grille circulaire du goniomètre
         ctx.strokeStyle = colors.grid;
         ctx.lineWidth = 1;
 
-        // Cercles concentriques
         for (let i = 1; i <= 3; i++) {
             ctx.beginPath();
             ctx.arc(gonoX, gonoY, (gonoRadius / 3) * i, 0, Math.PI * 2);
             ctx.stroke();
         }
 
-        // Axes X et Y
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
-        // Axe horizontal (Side)
         ctx.beginPath();
         ctx.moveTo(gonoX - gonoRadius, gonoY);
         ctx.lineTo(gonoX + gonoRadius, gonoY);
         ctx.stroke();
-        // Axe vertical (Mid)
         ctx.beginPath();
         ctx.moveTo(gonoX, gonoY - gonoRadius);
         ctx.lineTo(gonoX, gonoY + gonoRadius);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Diagonales (références stéréo)
         ctx.strokeStyle = colors.grid;
         ctx.globalAlpha = 0.3;
         ctx.beginPath();
@@ -1756,12 +2030,9 @@ class AudioLab {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Dessiner le tracé Lissajous (Mid vs Side)
-        // Sous-échantillonner pour de meilleures performances
         const gonoSampleStep = Math.max(1, Math.floor(leftSignal.length / 100));
 
-        // Tracer la courbe
-        ctx.strokeStyle = '#a855f7'; // Violet
+        ctx.strokeStyle = '#a855f7';
         ctx.lineWidth = 2;
         ctx.globalAlpha = 0.6;
         ctx.beginPath();
@@ -1769,14 +2040,10 @@ class AudioLab {
         for (let i = 0; i < leftSignal.length; i += gonoSampleStep) {
             const L = leftSignal[i] * normFactor;
             const R = rightSignal[i] * normFactor;
-            // Calculer Mid (L+R) et Side (L-R)
             const Mid = (L + R) / 2;
             const Side = (L - R) / 2;
-            // X = Side (horizontal), Y = Mid (vertical)
-            // Quand L=R (mono), Side=0 donc ligne verticale au centre
-            // Inverser signe X : quand on panoramise à droite (R>L), on va à droite
             const x = gonoX - Side * gonoRadius;
-            const y = gonoY - Mid * gonoRadius; // Inverser Y pour affichage correct
+            const y = gonoY - Mid * gonoRadius;
 
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
@@ -1784,7 +2051,6 @@ class AudioLab {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        // Labels
         ctx.fillStyle = colors.text;
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'center';
@@ -1798,29 +2064,24 @@ class AudioLab {
 
         ctx.restore();
 
-        // Calculer statistiques
         const leftPower = leftSignal.reduce((sum, v) => sum + v * v, 0) / leftSignal.length;
         const rightPower = rightSignal.reduce((sum, v) => sum + v * v, 0) / rightSignal.length;
         const leftLevel = Math.sqrt(leftPower) * 100;
         const rightLevel = Math.sqrt(rightPower) * 100;
 
-        // Corrélation
         let correlation = 0;
         for (let i = 0; i < samples; i++) {
             correlation += leftSignal[i] * rightSignal[i];
         }
         correlation = (correlation / samples) * 100;
 
-        // Économie mono vs stéréo
         const monoSaving = 50;
 
-        // Mettre à jour les stats
         document.getElementById('chan-left-level').textContent = leftLevel.toFixed(0) + '%';
         document.getElementById('chan-right-level').textContent = rightLevel.toFixed(0) + '%';
         document.getElementById('chan-correlation').textContent = correlation.toFixed(0) + '%';
         document.getElementById('chan-mono-saving').textContent = monoSaving + '%';
 
-        // Paramètres en bas à droite (zone y=475-500)
         ctx.fillStyle = colors.text;
         ctx.font = '12px Arial';
         ctx.textAlign = 'right';
@@ -1829,32 +2090,32 @@ class AudioLab {
 
     playStereoTone(state) {
         this.stopAudio();
-        const ctx = this.getAudioContext();
+        this.isPlaying = true;
 
-        const osc = ctx.createOscillator();
-        const merger = ctx.createChannelMerger(2);
-        const gainL = ctx.createGain();
-        const gainR = ctx.createGain();
+        Tone.start();
 
-        osc.frequency.value = state.freq;
+        const midSideEffect = new Tone.MidSideEffect();
+        midSideEffect.mid.gain.value = 1;
+        midSideEffect.side.gain.value = state.width / 100;
 
-        // Calculer les gains basés sur le pan
-        const panNorm = state.pan / 100;
-        const leftGain = Math.cos((panNorm + 1) * Math.PI / 4);
-        const rightGain = Math.sin((panNorm + 1) * Math.PI / 4);
+        this.panner = new Tone.Panner(state.pan / 100).connect(midSideEffect);
 
-        gainL.gain.value = leftGain * 0.3;
-        gainR.gain.value = rightGain * 0.3;
+        this.synth = new Tone.Synth({
+            oscillator: {
+                type: 'sine',
+                phase: state.phase
+            }
+        }).connect(this.panner);
 
-        osc.connect(gainL);
-        osc.connect(gainR);
-        gainL.connect(merger, 0, 0);
-        gainR.connect(merger, 0, 1);
-        merger.connect(ctx.destination);
+        midSideEffect.toDestination();
 
-        osc.start();
-        osc.stop(ctx.currentTime + 2);
-        this.currentSource = osc;
+        if (state.mode === 'mono') {
+            this.synth.disconnect(this.panner);
+            this.synth.toDestination();
+            this.synth.triggerAttack(state.freq, Tone.now(), 0.3);
+        } else {
+            this.synth.triggerAttack(state.freq, Tone.now(), 0.3);
+        }
     }
 
     updateChannelExplanation(state) {
@@ -1870,26 +2131,26 @@ class AudioLab {
         }
     }
 
-    playTone(freq, volume, duration) {
+    playTone(freq, volume) {
+        // Ensure audio is initialized before playing
+        if (!this.audioInitialized) {
+            this.initializeAudio();
+        }
+
         this.stopAudio();
-        const ctx = this.getAudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
+        this.isPlaying = true;
 
-        osc.frequency.value = freq;
-        gain.gain.value = volume;
+        Tone.start();
 
-        osc.connect(gain);
-        gain.connect(ctx.destination);
+        this.synth = new Tone.Synth({
+            envelope: { attack: 0.02, decay: 0.1, sustain: 0.8, release: 0.3 }
+        }).toDestination();
 
-        osc.start();
-        osc.stop(ctx.currentTime + duration);
-        this.currentSource = osc;
+        this.synth.triggerAttack(freq, Tone.now(), volume);
     }
 
     // ===== CALCULATORS =====
     initCalculators() {
-        // Calculateur Débit
         const sr = document.getElementById('calc-sr');
         const bd = document.getElementById('calc-bd');
         const ch = document.getElementById('calc-ch');
@@ -1913,7 +2174,6 @@ class AudioLab {
         ch?.addEventListener('change', updateBitrate);
         updateBitrate();
 
-        // Calculateur Taille
         const durSlider = document.getElementById('calc-duration');
         const durVal = document.getElementById('calc-dur-val');
         const format = document.getElementById('calc-format');
@@ -1954,7 +2214,6 @@ class AudioLab {
         format?.addEventListener('change', updateSize);
         updateSize();
 
-        // Calculateur Nyquist
         const nyqSlider = document.getElementById('calc-nyq-freq');
         const nyqVal = document.getElementById('calc-nyq-freq-val');
 
@@ -1973,7 +2232,6 @@ class AudioLab {
         nyqSlider?.addEventListener('input', updateNyquist);
         updateNyquist();
 
-        // Calculateur SNR
         const snrSlider = document.getElementById('calc-snr-bd');
         const snrVal = document.getElementById('calc-snr-bd-val');
 
@@ -1998,11 +2256,10 @@ class AudioLab {
     initFormatsComparison() {
         this.formatsState = {
             duration: 3,
-            quality: 'pro', // cd, pro, hires
+            quality: 'pro',
             channels: 2
         };
 
-        // Duration
         const durationSlider = document.getElementById('fmt-duration');
         const durationVal = document.getElementById('fmt-duration-val');
         if (durationSlider) {
@@ -2013,7 +2270,6 @@ class AudioLab {
             });
         }
 
-        // Quick buttons for duration
         document.querySelectorAll('.btn-tiny[data-target="fmt-duration"]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const val = parseInt(btn.getAttribute('data-value'));
@@ -2024,7 +2280,6 @@ class AudioLab {
             });
         });
 
-        // Quality preset
         const qualitySelect = document.getElementById('fmt-quality');
         if (qualitySelect) {
             qualitySelect.addEventListener('change', () => {
@@ -2033,7 +2288,6 @@ class AudioLab {
             });
         }
 
-        // Channels
         const channelsSelect = document.getElementById('fmt-ch');
         if (channelsSelect) {
             channelsSelect.addEventListener('change', () => {
@@ -2046,7 +2300,6 @@ class AudioLab {
     }
 
     getFormatDefinitions() {
-        // Définitions complètes des formats audio
         return [
             {
                 key: 'wav',
@@ -2057,7 +2310,7 @@ class AudioLab {
                 quality: 5,
                 color: '#0d6efd',
                 usage: 'Production, mastering, archivage',
-                bitrateCalculated: true // Calculé dynamiquement
+                bitrateCalculated: true
             },
             {
                 key: 'flac',
@@ -2153,29 +2406,23 @@ class AudioLab {
         const preset = this.getQualityPreset(state.quality);
         const formats = this.getFormatDefinitions();
 
-        // Calculer la taille de chaque format
         const durationSec = state.duration * 60;
         const wavBitrate = preset.sampleRate * preset.bitDepth * state.channels;
 
         formats.forEach(fmt => {
             if (fmt.bitrateCalculated) {
-                // WAV : calculé
                 fmt.calculatedBitrate = wavBitrate;
             } else if (fmt.compressionRatio) {
-                // Lossless compressé : basé sur WAV
                 fmt.calculatedBitrate = wavBitrate * fmt.compressionRatio;
             } else {
-                // Lossy : bitrate fixe
                 fmt.calculatedBitrate = fmt.bitrate;
             }
 
             fmt.sizeMB = (fmt.calculatedBitrate * durationSec) / (8 * 1024 * 1024);
         });
 
-        // Mettre à jour la visualisation par barres
         this.updateFormatsBars(formats, preset, state);
 
-        // Mettre à jour le tableau
         this.updateFormatsTable(formats, preset, state);
     }
 
@@ -2192,7 +2439,6 @@ class AudioLab {
 
             const widthPercent = (fmt.sizeMB / maxSize) * 100;
 
-            // Label avec badge
             const label = document.createElement('div');
             label.className = 'format-bar-label';
             label.innerHTML = `
@@ -2200,7 +2446,6 @@ class AudioLab {
                 <span class="format-badge ${fmt.type.toLowerCase()}">${fmt.type}</span>
             `;
 
-            // Wrapper + barre
             const wrapper = document.createElement('div');
             wrapper.className = 'format-bar-wrapper';
 
@@ -2216,7 +2461,6 @@ class AudioLab {
 
             wrapper.appendChild(fill);
 
-            // Économie par rapport au WAV
             const savings = document.createElement('div');
             savings.className = 'format-bar-savings';
             if (fmt.key !== 'wav') {
@@ -2246,24 +2490,19 @@ class AudioLab {
         formats.forEach(fmt => {
             const row = tbody.insertRow();
 
-            // Format name
             const cellName = row.insertCell();
             cellName.innerHTML = `<span class="format-name">${fmt.name}</span><br><small style="color: var(--text-secondary)">${fmt.fullName}</small>`;
 
-            // Type
             const cellType = row.insertCell();
             cellType.innerHTML = `<span class="format-badge ${fmt.type.toLowerCase()}">${fmt.type}</span>`;
 
-            // Bitrate
             const cellBitrate = row.insertCell();
             const kbps = Math.round(fmt.calculatedBitrate / 1000);
             cellBitrate.textContent = kbps >= 1000 ? (kbps / 1000).toFixed(1) + ' Mbps' : kbps + ' kbps';
 
-            // Size
             const cellSize = row.insertCell();
             cellSize.innerHTML = `<span class="format-size">${fmt.sizeMB.toFixed(2)} MB</span>`;
 
-            // Compression
             const cellCompression = row.insertCell();
             if (fmt.key === 'wav') {
                 cellCompression.textContent = '—';
@@ -2272,13 +2511,11 @@ class AudioLab {
                 cellCompression.innerHTML = `<span class="format-savings">${savingsPercent.toFixed(1)}%</span>`;
             }
 
-            // Quality (stars)
             const cellQuality = row.insertCell();
             const stars = '★'.repeat(fmt.quality) + '☆'.repeat(5 - fmt.quality);
             cellQuality.textContent = stars;
             cellQuality.style.color = '#ffc107';
 
-            // Usage
             const cellUsage = row.insertCell();
             cellUsage.innerHTML = `<span class="format-usage">${fmt.usage}</span>`;
         });
