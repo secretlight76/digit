@@ -123,34 +123,17 @@ class AudioLab {
                 let nativeContext = null;
 
                 // Tone.js wraps the native AudioContext
-                // Try to find the native context through various paths
-                if (ctx.rawContext && typeof ctx.rawContext.createScriptProcessor === 'function') {
+                // In Tone.js 14.x, the native context is at ctx._context._nativeContext
+                if (ctx._context && ctx._context._nativeContext &&
+                    typeof ctx._context._nativeContext.createScriptProcessor === 'function') {
+                    nativeContext = ctx._context._nativeContext;
+                } else if (ctx.rawContext && typeof ctx.rawContext.createScriptProcessor === 'function') {
+                    // Fallback for other Tone versions
                     nativeContext = ctx.rawContext;
                 } else if (ctx._context && typeof ctx._context.createScriptProcessor === 'function') {
+                    // Fallback if _nativeContext doesn't exist
                     nativeContext = ctx._context;
-                } else if (ctx._context && ctx._context.context && typeof ctx._context.context.createScriptProcessor === 'function') {
-                    nativeContext = ctx._context.context;
-                } else if (ctx.context && typeof ctx.context.createScriptProcessor === 'function') {
-                    nativeContext = ctx.context;
                 }
-
-                // Debug logging - explore Tone context structure
-                console.log('Exploring Tone context structure:');
-                console.log('typeof ctx.rawContext:', typeof ctx.rawContext);
-                console.log('typeof ctx._context:', typeof ctx._context);
-
-                // Try to find the native AudioContext by looking for properties
-                if (ctx._context) {
-                    console.log('ctx._context keys:', Object.keys(ctx._context).slice(0, 20));
-                    if (ctx._context._nativeContext) {
-                        console.log('Found ctx._context._nativeContext');
-                        if (typeof ctx._context._nativeContext.createScriptProcessor === 'function') {
-                            nativeContext = ctx._context._nativeContext;
-                        }
-                    }
-                }
-
-                console.log('Native context found:', !!nativeContext);
 
                 if (!nativeContext) {
                     console.warn('ScriptProcessor not available, audio will pass through unquantized');
@@ -183,9 +166,9 @@ class AudioLab {
                 input._gainNode.connect(processor);
                 processor.connect(output._gainNode);
                 quantizerState.processor = processor;
-                console.log('✓ ScriptProcessor successfully created and connected');
             } catch (err) {
-                console.error('Error creating ScriptProcessor:', err);
+                console.warn('ScriptProcessor initialization failed, audio will pass through unquantized:', err.message);
+                // Fallback: connect input directly to output
                 input.disconnect();
                 input.connect(output);
             }
@@ -224,11 +207,11 @@ class AudioLab {
             // Map index to [-1, 1] range
             const x = (i / (length - 1)) * 2 - 1;
 
-            // Quantize to discrete levels
-            const quantized = Math.round(x / step) * step;
-
-            // Clamp to [-1, 1]
-            curve[i] = Math.max(-1, Math.min(1, quantized));
+            // Quantize using proper level anchoring
+            const normalized = (x + 1) / step;
+            const levelIndex = Math.round(normalized);
+            const clampedIndex = Math.max(0, Math.min(levels - 1, levelIndex));
+            curve[i] = -1 + clampedIndex * step;
         }
 
         return curve;
