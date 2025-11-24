@@ -95,53 +95,48 @@ class AudioLab {
             envelope: { attack: 0.02, decay: 0.1, sustain: 0.8, release: 0.3 },
             volume: 0
         });
-        // Connect synth to the quantizer's input
-        this.synth.connect(this.playgroundEffects.quantizer.input);
+        // Connect synth to the quantizer effect (Tone.Effect has input that auto-creates)
+        this.synth.connect(this.playgroundEffects.quantizer);
 
         // Store current bits for tracking changes
         this.currentBits = 16;
     }
 
     createQuantizerEffect(bits) {
-        // Create input and output gains to wrap the ScriptProcessor
-        const input = new Tone.Gain();
-        const output = new Tone.Gain();
+        // Create a quantizer using WaveShaper with quantization curve
+        // This provides mathematically correct quantization without needing ScriptProcessor
 
-        // Create the actual processor node using the deprecated but functional ScriptProcessor
-        const audioContext = Tone.getContext().rawContext;
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        const generateQuantizationCurve = (numBits) => {
+            const length = 65536;
+            const curve = new Float32Array(length);
+            const levels = Math.pow(2, numBits);
 
-        // Store bits on the processor itself
-        processor._bits = bits;
+            for (let i = 0; i < length; i++) {
+                // Map index to [-1, 1] range
+                const x = (i / (length - 1)) * 2 - 1;
 
-        // Connect the chain: Tone input -> Web Audio processor -> Tone output
-        input._gainNode.connect(processor);
-        // Connect Web Audio node directly to Tone's underlying gain node
-        processor.connect(output._gainNode);
+                // Standard quantization: 2^N levels for N bits
+                const step = 2 / levels;
+                const quantized = Math.round(x / step) * step;
 
-        processor.onaudioprocess = (event) => {
-            const inputData = event.inputBuffer.getChannelData(0);
-            const outputData = event.outputBuffer.getChannelData(0);
-            const bitsValue = processor._bits || 16;
-
-            const levels = Math.pow(2, bitsValue);
-            const step = 2 / (levels - 1);
-
-            for (let i = 0; i < inputData.length; i++) {
-                // Real mathematical quantization
-                const quantized = Math.round(inputData[i] / step) * step;
-                outputData[i] = Math.max(-1, Math.min(1, quantized));
+                // Clamp to [-1, 1]
+                curve[i] = Math.max(-1, Math.min(1, quantized));
             }
+
+            return curve;
         };
 
-        // Wrap in a Tone.Node-compatible object
-        const quantizer = {
-            input: input,
-            output: output,
-            connect: (destination) => output.connect(destination),
-            setBits: (newBits) => {
-                processor._bits = newBits;
-            }
+        // Create WaveShaper with initial curve
+        const quantizer = new Tone.WaveShaper(generateQuantizationCurve(bits), 4096);
+
+        // Store the original methods and curve generation function
+        quantizer._bits = bits;
+        quantizer._generateCurve = generateQuantizationCurve;
+
+        // Add custom setBits method for real-time bit depth updates
+        quantizer.setBits = function(newBits) {
+            this._bits = newBits;
+            this.curve = this._generateCurve(newBits);
         };
 
         return quantizer;
