@@ -95,48 +95,90 @@ class AudioLab {
             envelope: { attack: 0.02, decay: 0.1, sustain: 0.8, release: 0.3 },
             volume: 0
         });
-        // Connect synth to the quantizer effect (Tone.Effect has input that auto-creates)
-        this.synth.connect(this.playgroundEffects.quantizer);
+        // Connect synth to the quantizer's input
+        this.synth.connect(this.playgroundEffects.quantizer.input);
 
         // Store current bits for tracking changes
         this.currentBits = 16;
     }
 
     createQuantizerEffect(bits) {
-        // Create a quantizer using WaveShaper with quantization curve
-        // This provides mathematically correct quantization without needing ScriptProcessor
+        // Create a quantizer using a custom effect with sample-level quantization
+        const self = this;
 
-        const generateQuantizationCurve = (numBits) => {
-            const length = 65536;
-            const curve = new Float32Array(length);
-            const levels = Math.pow(2, numBits);
+        // Create input and output nodes
+        const input = new Tone.Gain();
+        const output = new Tone.Gain();
 
-            for (let i = 0; i < length; i++) {
-                // Map index to [-1, 1] range
-                const x = (i / (length - 1)) * 2 - 1;
-
-                // Standard quantization: 2^N levels for N bits
-                const step = 2 / levels;
-                const quantized = Math.round(x / step) * step;
-
-                // Clamp to [-1, 1]
-                curve[i] = Math.max(-1, Math.min(1, quantized));
-            }
-
-            return curve;
+        // Create quantization state
+        const quantizerState = {
+            bits: bits,
+            processor: null,
+            initialized: false
         };
 
-        // Create WaveShaper with initial curve
-        const quantizer = new Tone.WaveShaper(generateQuantizationCurve(bits), 4096);
+        // Function to initialize the processor
+        const initializeProcessor = () => {
+            if (quantizerState.initialized) return;
+            quantizerState.initialized = true;
 
-        // Store the original methods and curve generation function
-        quantizer._bits = bits;
-        quantizer._generateCurve = generateQuantizationCurve;
+            try {
+                const audioContext = Tone.getContext().rawContext;
 
-        // Add custom setBits method for real-time bit depth updates
-        quantizer.setBits = function(newBits) {
-            this._bits = newBits;
-            this.curve = this._generateCurve(newBits);
+                // Try to create ScriptProcessor for sample-accurate quantization
+                if (typeof audioContext.createScriptProcessor === 'function') {
+                    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                    processor.onaudioprocess = (event) => {
+                        const inputData = event.inputBuffer.getChannelData(0);
+                        const outputData = event.outputBuffer.getChannelData(0);
+                        const bitsValue = quantizerState.bits || 16;
+
+                        // Real-time sample quantization
+                        const levels = Math.pow(2, bitsValue);
+                        const step = 2 / levels;
+
+                        for (let i = 0; i < inputData.length; i++) {
+                            const quantized = Math.round(inputData[i] / step) * step;
+                            outputData[i] = Math.max(-1, Math.min(1, quantized));
+                        }
+                    };
+
+                    // Connect the audio nodes
+                    input.connect(processor);
+                    processor.connect(output);
+                    quantizerState.processor = processor;
+                } else {
+                    // Fallback: just pass through without quantization
+                    console.warn('ScriptProcessor not available, audio will not be quantized');
+                    input.connect(output);
+                }
+            } catch (e) {
+                console.error('Error initializing quantizer:', e);
+                input.connect(output);
+            }
+        };
+
+        // Create a wrapper object that acts like a Tone effect
+        const quantizer = {
+            input: input,
+            output: output,
+            connect: function(destination) {
+                initializeProcessor();
+                return output.connect(destination);
+            },
+            disconnect: function() {
+                if (quantizerState.processor) {
+                    quantizerState.processor.disconnect();
+                }
+                output.disconnect();
+            },
+            setBits: function(newBits) {
+                quantizerState.bits = newBits;
+            },
+            dispose: function() {
+                this.disconnect();
+            }
         };
 
         return quantizer;
